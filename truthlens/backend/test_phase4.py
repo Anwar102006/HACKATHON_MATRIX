@@ -123,43 +123,84 @@ def run_tests():
     except Exception as e:
         record_test("6. Empty Claim Decomposition Error", "400", str(e), False)
 
-    # 7. English Language Detection
+    # 7. English Claim Without Jurisdiction (Independence Test)
     try:
         r = client.post("/api/evidence/decompose", json={"claim": "The government launched a space mission yesterday."})
         data = r.json()
-        passed = data.get("detected_language") == "en" and data.get("language_confidence", 0) > 0.6
-        record_test("7. English Language Detection", "lang='en' confidence > 0.6", f"lang={data.get('detected_language')} conf={data.get('language_confidence')}", passed)
+        passed = (
+            data.get("detected_language") == "en" and
+            data.get("jurisdiction_hint") is None
+        )
+        record_test(
+            "7. English Claim Without Jurisdiction",
+            "lang='en', jurisdiction=None (no default assigned)",
+            f"lang={data.get('detected_language')}, jurisdiction={data.get('jurisdiction_hint')}",
+            passed
+        )
     except Exception as e:
-        record_test("7. English Language Detection", "en", str(e), False)
+        record_test("7. English Claim Without Jurisdiction", "en, None", str(e), False)
 
-    # 8. Telugu Language Detection (Independent of Jurisdiction)
+    # 8. Telugu Claim Without Jurisdiction (No Telangana/AP inference)
     telugu_claim = "తెలంగాణ ప్రభుత్వం కొత్త పింఛన్ పథకాన్ని ప్రారంభించింది."
     try:
-        r = client.post("/api/evidence/decompose", json={"claim": telugu_claim, "jurisdiction": "central_india"})
+        r = client.post("/api/evidence/decompose", json={"claim": telugu_claim})
         data = r.json()
-        passed = data.get("detected_language") == "te" and data.get("jurisdiction_hint") == "central_india"
-        record_test("8. Telugu Language Detection (Independent of Jurisdiction)", "lang='te', jurisdiction preserved separately", f"lang={data.get('detected_language')}, jurisdiction={data.get('jurisdiction_hint')}", passed)
+        passed = (
+            data.get("detected_language") == "te" and
+            data.get("jurisdiction_hint") is None
+        )
+        record_test(
+            "8. Telugu Claim Without Jurisdiction",
+            "lang='te', jurisdiction=None (never inferred from language)",
+            f"lang={data.get('detected_language')}, jurisdiction={data.get('jurisdiction_hint')}",
+            passed
+        )
     except Exception as e:
-        record_test("8. Telugu Language Detection", "te", str(e), False)
+        record_test("8. Telugu Claim Without Jurisdiction", "te, None", str(e), False)
 
-    # 9. Tamil Language Detection (Independent of Jurisdiction)
+    # 9. Tamil Claim Without Jurisdiction (No Tamil Nadu inference)
     tamil_claim = "தமிழகத்தில் புதிய மின்சாரக் கட்டணக் கொள்கை அமலுக்கு வந்தது."
     try:
-        r = client.post("/api/evidence/decompose", json={"claim": tamil_claim, "jurisdiction": "india"})
+        r = client.post("/api/evidence/decompose", json={"claim": tamil_claim})
         data = r.json()
-        passed = data.get("detected_language") == "ta"
-        record_test("9. Tamil Language Detection (Independent of Jurisdiction)", "lang='ta'", f"lang={data.get('detected_language')} conf={data.get('language_confidence')}", passed)
+        passed = (
+            data.get("detected_language") == "ta" and
+            data.get("jurisdiction_hint") is None
+        )
+        record_test(
+            "9. Tamil Claim Without Jurisdiction",
+            "lang='ta', jurisdiction=None (never inferred from language)",
+            f"lang={data.get('detected_language')}, jurisdiction={data.get('jurisdiction_hint')}",
+            passed
+        )
     except Exception as e:
-        record_test("9. Tamil Language Detection", "ta", str(e), False)
+        record_test("9. Tamil Claim Without Jurisdiction", "ta, None", str(e), False)
 
-    # 10. Uncertain / Unknown Language Handling
+    # 10. Telugu Claim With Explicit User-Selected Jurisdiction
+    try:
+        r = client.post("/api/evidence/decompose", json={"claim": "రైతులకు కొత్త సబ్సిడీని ప్రకటించారు.", "jurisdiction": "ANDHRA_PRADESH"})
+        data = r.json()
+        passed = (
+            data.get("detected_language") == "te" and
+            data.get("jurisdiction_hint") == "ANDHRA_PRADESH"
+        )
+        record_test(
+            "10. Telugu Claim With Explicit User Jurisdiction",
+            "lang='te', jurisdiction='ANDHRA_PRADESH' (preserved because user provided it)",
+            f"lang={data.get('detected_language')}, jurisdiction={data.get('jurisdiction_hint')}",
+            passed
+        )
+    except Exception as e:
+        record_test("10. Telugu Claim With Explicit User Jurisdiction", "te, ANDHRA_PRADESH", str(e), False)
+
+    # 10b. Uncertain / Unknown Language Handling
     try:
         r = client.post("/api/evidence/decompose", json={"claim": "12345 67890 ??? !!!"})
         data = r.json()
-        passed = data.get("detected_language") == "unknown"
-        record_test("10. Uncertain Language Handling", "lang='unknown'", f"lang={data.get('detected_language')}", passed)
+        passed = data.get("detected_language") == "unknown" and data.get("jurisdiction_hint") is None
+        record_test("10b. Uncertain Language Handling", "lang='unknown', jurisdiction=None", f"lang={data.get('detected_language')}, jurisdiction={data.get('jurisdiction_hint')}", passed)
     except Exception as e:
-        record_test("10. Uncertain Language Handling", "unknown", str(e), False)
+        record_test("10b. Uncertain Language Handling", "unknown", str(e), False)
 
     # 11. Controlled NLI Entailment Test
     entail_req = {
