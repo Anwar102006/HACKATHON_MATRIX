@@ -62,4 +62,59 @@ export const searchEvidence = async (payload) => {
   }
 };
 
+/**
+ * Compare atomic claims with candidate evidence using NLI model.
+ * 
+ * @param {Object} payload
+ * @param {Array} payload.claims - Atomic claims list
+ * @param {Array} payload.evidence - Evidence items list
+ * @returns {Promise<{success: boolean, data?: Object, error?: string, code?: string}>}
+ */
+export const compareEvidence = async (payload) => {
+  try {
+    const response = await apiClient.post('/api/evidence/compare', payload, { timeout: 30000 });
+    return {
+      success: true,
+      data: response.data,
+    };
+  } catch (error) {
+    const errData = error.response?.data?.error;
+    return {
+      success: false,
+      error: errData?.message || error.message || 'Unable to compare evidence with claims',
+      code: errData?.code || 'COMPARISON_ERROR',
+      status: error.response?.status,
+    };
+  }
+};
+
+/**
+ * Integrated Phase 4 Analysis: Decomposition + Retrieval + NLI Comparison.
+ * Note: Does NOT compute a final truth verdict.
+ * 
+ * @param {Object} payload
+ * @param {string} payload.claim - User claim text
+ * @param {string} [payload.jurisdiction] - Jurisdiction hint
+ * @param {number} [payload.max_results] - Max evidence to retrieve
+ * @returns {Promise<{success: boolean, data?: Object, error?: string, code?: string}>}
+ */
+export const analyzeClaimEvidence = async (payload) => {
+  try {
+    const response = await apiClient.post('/api/evidence/analyze', payload, { timeout: 45000 });
+    return {
+      success: true,
+      data: response.data,
+    };
+  } catch (error) {
+    const errData = error.response?.data?.error;
+    return {
+      success: false,
+      error: errData?.message || error.message || 'Unable to analyze claim evidence',
+      code: errData?.code || 'ANALYSIS_ERROR',
+      status: error.response?.status,
+    };
+  }
+};
+
 export default apiClient;
+

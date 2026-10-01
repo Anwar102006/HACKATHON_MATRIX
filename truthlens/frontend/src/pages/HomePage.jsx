@@ -20,7 +20,7 @@ import {
   Scale,
   Compass
 } from 'lucide-react';
-import { searchEvidence } from '../services/api';
+import { searchEvidence, analyzeClaimEvidence } from '../services/api';
 
 export const JURISDICTIONS = [
   { id: 'central', name: 'Central Government / India', description: 'PIB, The Gazette of India, Union Ministries' },
@@ -155,7 +155,7 @@ export default function HomePage() {
     setIsSubmitting(true);
     setSubmissionFeedback({
       type: 'info',
-      message: 'Querying Free News API via TruthLens Evidence Orchestrator...',
+      message: 'Decomposing claims, retrieving evidence, and running NLI comparison...',
     });
 
     // Map language code (default 'en')
@@ -163,12 +163,10 @@ export default function HomePage() {
     const langCode = selectedLangObj ? selectedLangObj.code : 'en';
 
     try {
-      const result = await searchEvidence({
+      const result = await analyzeClaimEvidence({
         claim: headline.trim(),
         jurisdiction,
-        language: langCode,
-        country: 'IN',
-        size: 10,
+        max_results: 5,
       });
 
       setIsSubmitting(false);
@@ -182,17 +180,34 @@ export default function HomePage() {
             jurisdiction,
             language,
             submittedAt: new Date().toISOString(),
-            evidenceResults: result.data.results || [],
-            evidenceTotal: result.data.total_found || 0,
-            evidenceCount: result.data.results_count || 0,
-            providerTookMs: result.data.took_ms,
-            provider: result.data.provider || 'free_news_api',
-            warning: result.data.warning,
-            status: 'Evidence Retrieved',
+            atomicClaims: result.data.atomic_claims || [],
+            totalAtomicClaims: result.data.total_atomic_claims || 0,
+            detectedLanguage: result.data.detected_language,
+            languageConfidence: result.data.language_confidence,
+            isOpinionOnly: result.data.is_opinion_only,
+            evidenceResults: result.data.evidence || [],
+            evidenceTotal: result.data.total_evidence_retrieved || 0,
+            evidenceCount: result.data.total_evidence_retrieved || 0,
+            relationships: result.data.relationships || [],
+            relationshipCounts: result.data.relationship_counts || {},
+            nliModel: result.data.nli_model,
+            limitationNotice: result.data.limitation_notice,
+            timingsMs: result.data.timings_ms || {},
+            providerTookMs: result.data.timings_ms?.retrieval_ms,
+            provider: 'free_news_api',
+            status: 'NLI Analysis Complete',
           },
         });
       } else {
-        // Navigate with structured provider error so ResultsPage can present the state honestly
+        // Fallback: search evidence only if analyze endpoint encountered an issue
+        const searchRes = await searchEvidence({
+          claim: headline.trim(),
+          jurisdiction,
+          language: langCode,
+          country: 'IN',
+          size: 5,
+        });
+
         navigate('/results', {
           state: {
             headline: headline.trim(),
@@ -201,12 +216,14 @@ export default function HomePage() {
             jurisdiction,
             language,
             submittedAt: new Date().toISOString(),
-            evidenceResults: [],
-            evidenceTotal: 0,
-            evidenceCount: 0,
-            evidenceError: result.error,
+            atomicClaims: [],
+            evidenceResults: searchRes.success ? (searchRes.data.results || []) : [],
+            evidenceTotal: searchRes.success ? (searchRes.data.total_found || 0) : 0,
+            evidenceCount: searchRes.success ? (searchRes.data.results_count || 0) : 0,
+            relationships: [],
+            evidenceError: !searchRes.success ? searchRes.error : result.error,
             errorCode: result.code,
-            status: 'Provider Error',
+            status: searchRes.success ? 'Evidence Retrieved' : 'Provider Error',
           },
         });
       }
@@ -214,7 +231,7 @@ export default function HomePage() {
       setIsSubmitting(false);
       setSubmissionFeedback({
         type: 'error',
-        message: err.message || 'An error occurred while connecting to the evidence service.',
+        message: err.message || 'An error occurred while connecting to the analysis pipeline.',
       });
     }
   };

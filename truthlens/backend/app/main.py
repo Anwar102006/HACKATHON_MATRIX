@@ -1,17 +1,28 @@
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from app.api.health import router as health_router
 from app.api.evidence import router as evidence_router
+from app.services.nli_service import nli_service
 
 load_dotenv()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Pre-warm NLI model singleton on application startup
+    nli_service.ensure_model_loaded()
+    yield
+
+
 app = FastAPI(
     title="TruthLens Backend",
-    description="Evidence-based misinformation and news verification engine API — Phase 3 Evidence Retrieval",
-    version="0.3.0",
+    description="Evidence-based misinformation and news verification engine API — Phase 4 NLI Foundation",
+    version="0.4.0",
+    lifespan=lifespan,
 )
 
 # CORS configuration for frontend communication during local development

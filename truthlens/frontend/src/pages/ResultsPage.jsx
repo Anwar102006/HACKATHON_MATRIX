@@ -18,19 +18,23 @@ import {
   RotateCcw,
   Loader2,
   Info,
-  CheckCircle2
+  CheckCircle2,
+  Filter,
+  Cpu,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import EvidenceCard from '../components/EvidenceCard';
-import { searchEvidence } from '../services/api';
+import { analyzeClaimEvidence } from '../services/api';
 
 export default function ResultsPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Retrieve submitted payload from navigation state (if available)
+  // Retrieve submitted payload from navigation state
   const submission = location.state || null;
 
-  // State from submission
+  // Submitted claim metadata
   const headline = submission?.headline || null;
   const newsText = submission?.newsText || '';
   const newsUrl = submission?.newsUrl || '';
@@ -40,13 +44,27 @@ export default function ResultsPage() {
     ? new Date(submission.submittedAt).toLocaleString() 
     : null;
 
+  // Phase 4 Decomposed claims & NLI relationships state
+  const [atomicClaims, setAtomicClaims] = useState(submission?.atomicClaims || []);
+  const [relationships, setRelationships] = useState(submission?.relationships || []);
+  const [relationshipCounts, setRelationshipCounts] = useState(submission?.relationshipCounts || {});
+  const [detectedLanguage, setDetectedLanguage] = useState(submission?.detectedLanguage || 'en');
+  const [languageConfidence, setLanguageConfidence] = useState(submission?.languageConfidence || 0);
+  const [isOpinionOnly, setIsOpinionOnly] = useState(submission?.isOpinionOnly || false);
+  const [nliModel, setNliModel] = useState(submission?.nliModel || 'cross-encoder/nli-distilroberta-base');
+  const [timingsMs, setTimingsMs] = useState(submission?.timingsMs || {});
+
   // Evidence state
   const [evidenceItems, setEvidenceItems] = useState(submission?.evidenceResults || []);
   const [evidenceTotal, setEvidenceTotal] = useState(submission?.evidenceTotal || 0);
   const [evidenceCount, setEvidenceCount] = useState(submission?.evidenceCount || submission?.evidenceResults?.length || 0);
-  const [providerTookMs, setProviderTookMs] = useState(submission?.providerTookMs || null);
   const [evidenceError, setEvidenceError] = useState(submission?.evidenceError || null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Filter state for Evidence Matrix
+  const [selectedClaimFilter, setSelectedClaimFilter] = useState('ALL');
+  const [selectedRelFilter, setSelectedRelFilter] = useState('ALL');
+  const [expandedPairId, setExpandedPairId] = useState(null);
 
   // Authoritative sources mapped by jurisdiction
   const jurisdictionSourcesMap = {
@@ -77,33 +95,43 @@ export default function ResultsPage() {
 
   const relevantSources = jurisdictionSourcesMap[jurisdiction] || jurisdictionSourcesMap['Central Government / India'];
 
-  // Handle re-fetching evidence directly
-  const handleRefreshEvidence = async () => {
+  // Re-run Phase 4 pipeline on demand
+  const handleRefreshAnalysis = async () => {
     if (!headline || isRefreshing) return;
     setIsRefreshing(true);
     setEvidenceError(null);
 
-    const langCode = language.toLowerCase().includes('telugu') ? 'te' : language.toLowerCase().includes('tamil') ? 'ta' : 'en';
-
-    const result = await searchEvidence({
+    const result = await analyzeClaimEvidence({
       claim: headline,
       jurisdiction,
-      language: langCode,
-      country: 'IN',
-      size: 10,
+      max_results: 5,
     });
 
     setIsRefreshing(false);
     if (result.success) {
-      setEvidenceItems(result.data.results || []);
-      setEvidenceTotal(result.data.total_found || 0);
-      setEvidenceCount(result.data.results_count || 0);
-      setProviderTookMs(result.data.took_ms);
+      setAtomicClaims(result.data.atomic_claims || []);
+      setEvidenceItems(result.data.evidence || []);
+      setEvidenceTotal(result.data.total_evidence_retrieved || 0);
+      setEvidenceCount(result.data.total_evidence_retrieved || 0);
+      setRelationships(result.data.relationships || []);
+      setRelationshipCounts(result.data.relationship_counts || {});
+      setDetectedLanguage(result.data.detected_language);
+      setLanguageConfidence(result.data.language_confidence);
+      setIsOpinionOnly(result.data.is_opinion_only);
+      setNliModel(result.data.nli_model);
+      setTimingsMs(result.data.timings_ms || {});
       setEvidenceError(null);
     } else {
       setEvidenceError(result.error);
     }
   };
+
+  // Filtered relationships for matrix
+  const filteredRelationships = relationships.filter(rel => {
+    const claimMatches = selectedClaimFilter === 'ALL' || rel.claim_id === selectedClaimFilter;
+    const relMatches = selectedRelFilter === 'ALL' || rel.relationship === selectedRelFilter;
+    return claimMatches && relMatches;
+  });
 
   // Empty state: accessed directly without submission
   if (!headline) {
@@ -135,8 +163,47 @@ export default function ResultsPage() {
     );
   }
 
+  // Relationship visual styling helpers
+  const getRelationshipBadge = (rel) => {
+    switch (rel) {
+      case 'ENTAILS':
+        return {
+          bg: 'bg-emerald-950/70 text-emerald-300 border-emerald-800',
+          dot: 'bg-emerald-400',
+          label: 'ENTAILS',
+          desc: 'Evidence is consistent with this claim.',
+          icon: CheckCircle2,
+        };
+      case 'CONTRADICTS':
+        return {
+          bg: 'bg-rose-950/70 text-rose-300 border-rose-800',
+          dot: 'bg-rose-400',
+          label: 'CONTRADICTS',
+          desc: 'Evidence conflicts with this claim.',
+          icon: AlertCircle,
+        };
+      case 'UNSUPPORTED_LANGUAGE':
+        return {
+          bg: 'bg-purple-950/70 text-purple-300 border-purple-800',
+          dot: 'bg-purple-400',
+          label: 'LANG NOT SUPPORTED',
+          desc: 'NLI model is English-only. Language preserved without unverified scores.',
+          icon: Globe,
+        };
+      case 'NEUTRAL':
+      default:
+        return {
+          bg: 'bg-slate-800 text-slate-300 border-slate-700',
+          dot: 'bg-slate-400',
+          label: 'NEUTRAL',
+          desc: 'Evidence does not clearly establish or contradict this claim.',
+          icon: HelpCircle,
+        };
+    }
+  };
+
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Top Navigation Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
         <div className="space-y-1">
@@ -149,23 +216,26 @@ export default function ResultsPage() {
           </NavLink>
           <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
             <Activity className="w-6 h-6 text-sky-400" />
-            <span>Evidence Assessment &amp; Retrieval</span>
+            <span>Claim Decomposition &amp; Evidence Comparison</span>
           </h1>
+          <p className="text-xs text-slate-400">
+            Phase 4: Natural Language Inference (NLI) relationship modeling between atomic claims and candidate news evidence.
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={handleRefreshEvidence}
+            onClick={handleRefreshAnalysis}
             disabled={isRefreshing}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-medium text-slate-300 border border-slate-700 transition-colors cursor-pointer"
-            title="Re-run evidence search against Free News API"
+            title="Re-run decomposition and NLI comparison"
           >
             {isRefreshing ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
             ) : (
               <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
             )}
-            <span>{isRefreshing ? 'Retrieving...' : 'Refresh Evidence'}</span>
+            <span>{isRefreshing ? 'Analyzing...' : 'Re-run Analysis'}</span>
           </button>
 
           <button
@@ -178,69 +248,74 @@ export default function ResultsPage() {
         </div>
       </div>
 
-      {/* Mandatory Honest Verification Disclosure Callout */}
+      {/* Mandatory Honest Limitation Notice (Section 23) */}
       <div className="p-4 rounded-xl bg-sky-950/40 border border-sky-800/80 flex items-start gap-3 text-xs text-sky-200 shadow-sm">
         <Info className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
         <div className="space-y-1">
           <span className="font-semibold text-sky-300 block">
-            Evidence Candidates Disclosure (Phase 3 Foundation)
+            Honest Modeling Notice (Phase 4 Foundation)
           </span>
           <p className="text-sky-200/90 leading-relaxed">
-            These are retrieved evidence sources, not a final fact-check. TruthLens has not yet compared the claim against the evidence.
+            TruthLens currently compares claims with retrieved evidence using a pretrained NLI model (<code className="font-mono text-sky-300">{nliModel}</code>). 
+            These relationships are model predictions of premise-hypothesis consistency, <strong>NOT final determinations of objective truth</strong>. 
+            Source authority, jurisdiction alignment, and multi-source evidence fusion are evaluated in later stages.
           </p>
         </div>
       </div>
 
-      {/* Verification Status Banner (Honest Non-Fabricated State) */}
-      <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
-        <div className="flex items-start sm:items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-sky-400 flex-shrink-0">
-            {evidenceError ? (
-              <AlertCircle className="w-4 h-4 text-rose-400" />
-            ) : (
-              <Clock className="w-4 h-4 text-sky-400" />
-            )}
+      {/* Phase 4 Status & Metric Banner */}
+      <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-sky-400 flex-shrink-0">
+            <Cpu className="w-5 h-5 text-sky-400" />
           </div>
           <div className="space-y-0.5">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-slate-300 uppercase tracking-wider text-[11px]">
-                Status:
+                Pipeline State:
               </span>
-              <span className={`px-2 py-0.5 rounded font-mono font-medium border ${
-                evidenceError 
-                  ? 'bg-rose-950/60 text-rose-300 border-rose-800' 
-                  : 'bg-sky-950/60 text-sky-300 border-sky-800'
-              }`}>
-                {evidenceError 
-                  ? 'Provider Search Error' 
-                  : 'Evidence Candidates Retrieved — Awaiting NLI Comparison'}
+              <span className="px-2 py-0.5 rounded font-mono font-medium border bg-sky-950/60 text-sky-300 border-sky-800">
+                NLI Evidence Comparison Completed
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Provider: <span className="font-medium text-slate-300">Free News API</span> &bull; {evidenceCount} candidates retrieved{providerTookMs ? ` (${providerTookMs}ms)` : ''}.
+              Model: <span className="font-mono text-slate-300">{nliModel}</span> &bull; 
+              Decomposed into <span className="font-semibold text-slate-300">{atomicClaims.length}</span> atomic claim{atomicClaims.length === 1 ? '' : 's'} &bull; 
+              <span className="font-semibold text-slate-300">{relationships.length}</span> pairwise evaluation{relationships.length === 1 ? '' : 's'}.
             </p>
           </div>
         </div>
 
-        <div className="text-[11px] text-slate-400 font-mono sm:text-right">
+        <div className="flex items-center gap-3 text-[11px] font-mono text-slate-400">
+          {timingsMs.total_ms && (
+            <span className="px-2 py-1 rounded bg-slate-950 border border-slate-800">
+              Total: {timingsMs.total_ms}ms
+            </span>
+          )}
           {submittedAt && <span>Submitted: {submittedAt}</span>}
         </div>
       </div>
 
       {/* Main Grid: 2 Columns */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column (2 cols): Submitted Claim, Clause Breakdown, Evidence */}
+        {/* Left Column (2 cols): Submitted Claim, Atomic Decomposition, Evidence Matrix, Evidence Records */}
         <div className="lg:col-span-2 space-y-6">
+
           {/* 1. Submitted Claim Details */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-sm">
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
               <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
                 <FileText className="w-4 h-4 text-sky-400" />
-                <span>Submitted Claim</span>
+                <span>Submitted Claim &amp; Context</span>
               </h2>
-              <span className="text-[11px] font-mono text-slate-400">
-                Primary Query
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-800 text-sky-300 border border-slate-700">
+                  Lang: {detectedLanguage.toUpperCase()} {languageConfidence > 0 ? `(${(languageConfidence * 100).toFixed(0)}%)` : ''}
+                </span>
+                <span className="text-[10px] font-mono text-slate-400">
+                  Jurisdiction: {jurisdiction}
+                </span>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -262,7 +337,7 @@ export default function ResultsPage() {
               {newsUrl && (
                 <div className="space-y-1 pt-1">
                   <span className="text-[11px] font-medium text-slate-400 block">
-                    Reference Article Link:
+                    Reference Source Link:
                   </span>
                   <a
                     href={newsUrl}
@@ -278,48 +353,266 @@ export default function ResultsPage() {
             </div>
           </div>
 
-          {/* 2. Detected Claims / Clause Decomposition Shell */}
+          {/* 2. Decomposed Atomic Claims (Section 4 & 5) */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-sm">
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
               <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
                 <Layers className="w-4 h-4 text-sky-400" />
-                <span>Decomposed Claim Clauses</span>
+                <span>Atomic Claim Decomposition ({atomicClaims.length})</span>
               </h2>
-              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                Phase 4 Pipeline
+              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800">
+                Independently Verifiable Units
               </span>
             </div>
 
-            <div className="p-4 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-2 text-xs text-slate-400">
-              <div className="flex items-start gap-2.5">
-                <HelpCircle className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <span className="font-semibold text-slate-200">Sentence Segmentation &amp; Clause Extraction:</span>
-                  <p className="leading-relaxed">
-                    Once the NLP parsing service is connected in upcoming phases, complex news statements will be automatically split into individual verifiable factual claims. Each clause will then be independently scored against retrieved evidence.
+            <div className="space-y-3">
+              {atomicClaims.map((claim) => (
+                <div 
+                  key={claim.id} 
+                  className={`p-3.5 rounded-lg border text-xs space-y-2 ${
+                    claim.is_verifiable 
+                      ? 'bg-slate-950/60 border-slate-800' 
+                      : 'bg-amber-950/20 border-amber-900/60'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] font-bold text-sky-400 bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-800">
+                        {claim.id.toUpperCase()}
+                      </span>
+                      <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                        Type: {claim.claim_type}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {claim.is_verifiable ? (
+                        <span className="text-[10px] font-medium text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Verifiable Factual Claim</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-800 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          <span>Subjective / Opinion Statement</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="text-sm font-medium text-slate-200">
+                    "{claim.text}"
                   </p>
+
+                  {!claim.is_verifiable && claim.subjective_reason && (
+                    <p className="text-[11px] text-amber-300/80 italic">
+                      Notice: {claim.subjective_reason}
+                    </p>
+                  )}
                 </div>
-              </div>
+              ))}
+
+              {atomicClaims.length === 0 && (
+                <p className="text-xs text-slate-400 italic p-3 text-center">
+                  No atomic claims extracted.
+                </p>
+              )}
             </div>
           </div>
 
-          {/* 3. Real Evidence Candidates Section */}
+          {/* 3. CORE PHASE 4: Evidence Relationships Matrix (Section 14, 15, 16) */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-5 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+              <div className="space-y-0.5">
+                <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-sky-400" />
+                  <span>Claim-to-Evidence Relationship Matrix</span>
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  Individual NLI pairwise consistency evaluations ({filteredRelationships.length} shown)
+                </p>
+              </div>
+
+              {/* Filters */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                  <Filter className="w-3 h-3 text-slate-500" />
+                  <span>Claim:</span>
+                  <select
+                    value={selectedClaimFilter}
+                    onChange={(e) => setSelectedClaimFilter(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-[11px] text-slate-300"
+                  >
+                    <option value="ALL">All Claims</option>
+                    {atomicClaims.map(c => (
+                      <option key={c.id} value={c.id}>{c.id.toUpperCase()}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                  <span>Rel:</span>
+                  <select
+                    value={selectedRelFilter}
+                    onChange={(e) => setSelectedRelFilter(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-[11px] text-slate-300"
+                  >
+                    <option value="ALL">All Relationships</option>
+                    <option value="ENTAILS">ENTAILS</option>
+                    <option value="CONTRADICTS">CONTRADICTS</option>
+                    <option value="NEUTRAL">NEUTRAL</option>
+                    <option value="UNSUPPORTED_LANGUAGE">UNSUPPORTED LANG</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Matrix Cards List */}
+            <div className="space-y-4">
+              {filteredRelationships.map((pair, idx) => {
+                const badge = getRelationshipBadge(pair.relationship);
+                const BadgeIcon = badge.icon;
+                const isExpanded = expandedPairId === `${pair.claim_id}_${pair.evidence_id}_${idx}`;
+
+                return (
+                  <div 
+                    key={`${pair.claim_id}_${pair.evidence_id}_${idx}`}
+                    className="rounded-xl bg-slate-950/60 border border-slate-800 overflow-hidden shadow-sm transition-all hover:border-slate-700"
+                  >
+                    {/* Header Row: Claim ID, Source, Relationship, Confidence */}
+                    <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800/60">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[10px] font-bold text-sky-400 bg-sky-950 px-1.5 py-0.5 rounded border border-sky-800">
+                            {pair.claim_id.toUpperCase()}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-200">
+                            {pair.evidence_publisher}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            (used: {pair.evidence_text_source})
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-300 italic">
+                          Claim: "{pair.claim_text}"
+                        </p>
+                      </div>
+
+                      {/* Relationship & Confidence Badges */}
+                      <div className="flex items-center gap-3">
+                        <div className={`px-2.5 py-1 rounded-lg border font-mono text-xs font-semibold flex items-center gap-1.5 ${badge.bg}`}>
+                          <BadgeIcon className="w-3.5 h-3.5" />
+                          <span>{badge.label}</span>
+                        </div>
+
+                        {pair.scores && (
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-400 block font-mono">
+                              NLI Confidence:
+                            </span>
+                            <span className="text-xs font-mono font-bold text-slate-200">
+                              {(pair.confidence * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Middle: Evidence Text Used & Relationship Explanation */}
+                    <div className="p-4 space-y-3 text-xs">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                          What It Establishes:
+                        </span>
+                        <p className="text-xs font-medium text-slate-200 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80">
+                          {pair.relationship_explanation}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[10px] text-slate-400">
+                          <span className="font-semibold uppercase tracking-wider">
+                            Evidence Text Analyzed:
+                          </span>
+                          <span className="font-mono text-slate-500">
+                            Source: {pair.evidence_text_source}
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/60 text-slate-300 font-serif leading-relaxed">
+                          "{pair.evidence_text_used || pair.evidence_title}"
+                        </div>
+                      </div>
+
+                      {/* Toggleable Detailed Probabilities */}
+                      {pair.scores && (
+                        <div>
+                          <button
+                            onClick={() => setExpandedPairId(isExpanded ? null : `${pair.claim_id}_${pair.evidence_id}_${idx}`)}
+                            className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 transition-colors font-mono cursor-pointer"
+                          >
+                            <span>{isExpanded ? 'Hide Detailed NLI Scores' : 'View Full Probability Distribution'}</span>
+                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          </button>
+
+                          {isExpanded && (
+                            <div className="mt-2 p-3 rounded-lg bg-slate-900/80 border border-slate-800 grid grid-cols-3 gap-2 font-mono text-center">
+                              <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                                <span className="text-[10px] text-emerald-400 block">ENTAILS</span>
+                                <span className="text-xs font-bold text-slate-200">{(pair.scores.entails * 100).toFixed(2)}%</span>
+                              </div>
+                              <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                                <span className="text-[10px] text-rose-400 block">CONTRADICTS</span>
+                                <span className="text-xs font-bold text-slate-200">{(pair.scores.contradicts * 100).toFixed(2)}%</span>
+                              </div>
+                              <div className="p-2 rounded bg-slate-950 border border-slate-800">
+                                <span className="text-[10px] text-amber-400 block">NEUTRAL</span>
+                                <span className="text-xs font-bold text-slate-200">{(pair.scores.neutral * 100).toFixed(2)}%</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Source Link */}
+                      {pair.evidence_source_url && (
+                        <div className="pt-1 flex items-center justify-between border-t border-slate-800/40 text-[11px]">
+                          <span className="text-slate-500 font-mono">
+                            Inference: {pair.inference_time_ms}ms
+                          </span>
+                          <a
+                            href={pair.evidence_source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 transition-colors"
+                          >
+                            <span>Inspect Source Article</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredRelationships.length === 0 && (
+                <div className="p-8 text-center rounded-xl bg-slate-950/40 border border-slate-800 text-xs text-slate-400">
+                  No relationships match the selected filters or no evidence candidates were available for comparison.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 4. Retrieved Evidence Candidates (Phase 3 Foundation) */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-sm">
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
               <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
                 <FileCheck className="w-4 h-4 text-sky-400" />
-                <span>Retrieved Evidence Records</span>
+                <span>Retrieved Evidence Records ({evidenceItems.length})</span>
               </h2>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                  {evidenceItems.length} Records Returned
-                </span>
-                {evidenceTotal > 0 && (
-                  <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
-                    (Index Total: {evidenceTotal})
-                  </span>
-                )}
-              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                Free News API
+              </span>
             </div>
 
             {/* Error State */}
@@ -333,32 +626,14 @@ export default function ResultsPage() {
                   {evidenceError}
                 </p>
                 <button
-                  onClick={handleRefreshEvidence}
+                  onClick={handleRefreshAnalysis}
                   disabled={isRefreshing}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-900/60 hover:bg-rose-900 text-white font-medium text-xs border border-rose-700 transition-colors cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Retry Search</span>
+                  <span>Retry Pipeline</span>
                 </button>
               </div>
-            )}
-
-            {/* Loading / Refreshing State */}
-            {isRefreshing && (
-              <div className="p-8 text-center space-y-3">
-                <Loader2 className="w-6 h-6 animate-spin text-sky-400 mx-auto" />
-                <p className="text-xs text-slate-400 font-mono">
-                  Retrieving updated articles from Free News API...
-                </p>
-              </div>
-            )}
-
-            {/* Empty State */}
-            {!isRefreshing && !evidenceError && evidenceItems.length === 0 && (
-              <EvidenceCard
-                isEmptyState={true}
-                emptyMessage="No relevant evidence sources were found for this search."
-              />
             )}
 
             {/* Evidence Cards List */}
@@ -373,28 +648,68 @@ export default function ResultsPage() {
               </div>
             )}
           </div>
-
-          {/* 4. Explainable Summary Shell */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-3 shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
-              <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-sky-400" />
-                <span>Explainable Assessment Summary</span>
-              </h2>
-              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                Pending NLI Inference
-              </span>
-            </div>
-
-            <p className="text-xs text-slate-400 leading-relaxed">
-              When verification inference is connected in subsequent phases, this section will synthesize the retrieved evidence records into an explainable narrative detailing whether cited reporting substantiates, refutes, or qualifies the submitted claim clauses. No automated decision is rendered without explicit citations.
-            </p>
-          </div>
         </div>
 
-        {/* Right Column (1 col): Metadata, Jurisdiction Sources, Integrity Standard */}
+        {/* Right Column (1 col): Metadata, Relationship Scorecard, Official Sources, Integrity Standard */}
         <div className="space-y-6">
-          {/* Metadata Card */}
+
+          {/* Relationship Distribution Scorecard */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
+            <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider border-b border-slate-800/80 pb-2 flex items-center justify-between">
+              <span>NLI Relationship Summary</span>
+              <span className="text-[10px] font-mono text-sky-400">Phase 4</span>
+            </h3>
+
+            <div className="space-y-2.5 text-xs">
+              <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-950/40 border border-emerald-900/60">
+                <span className="text-emerald-300 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  ENTAILS (Consistent):
+                </span>
+                <span className="font-mono font-bold text-emerald-200">
+                  {relationshipCounts['ENTAILS'] || 0}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between p-2 rounded-lg bg-rose-950/40 border border-rose-900/60">
+                <span className="text-rose-300 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                  CONTRADICTS (Conflicts):
+                </span>
+                <span className="font-mono font-bold text-rose-200">
+                  {relationshipCounts['CONTRADICTS'] || 0}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span className="text-slate-300 flex items-center gap-1.5">
+                  <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
+                  NEUTRAL (Unrelated / Partial):
+                </span>
+                <span className="font-mono font-bold text-slate-200">
+                  {relationshipCounts['NEUTRAL'] || 0}
+                </span>
+              </div>
+
+              {(relationshipCounts['UNSUPPORTED_LANGUAGE'] || 0) > 0 && (
+                <div className="flex items-center justify-between p-2 rounded-lg bg-purple-950/40 border border-purple-900/60">
+                  <span className="text-purple-300 flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-purple-400" />
+                    Unsupported Lang:
+                  </span>
+                  <span className="font-mono font-bold text-purple-200">
+                    {relationshipCounts['UNSUPPORTED_LANGUAGE']}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <p className="text-[11px] text-slate-400 leading-relaxed pt-1 border-t border-slate-800/60">
+              Note: Relationship counts reflect single claim-evidence pairs. They do not constitute a final verdict.
+            </p>
+          </div>
+
+          {/* Routing Parameters Metadata Card */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
             <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider border-b border-slate-800/80 pb-2">
               Routing Parameters
@@ -412,14 +727,16 @@ export default function ResultsPage() {
               <div className="flex items-center justify-between py-1 border-b border-slate-800/50">
                 <span className="text-slate-400 flex items-center gap-1.5">
                   <Globe className="w-3.5 h-3.5 text-sky-400" />
-                  Language:
+                  Detected Language:
                 </span>
-                <span className="font-medium text-slate-200">{language}</span>
+                <span className="font-medium text-slate-200 uppercase font-mono">{detectedLanguage}</span>
               </div>
 
               <div className="flex items-center justify-between py-1 border-b border-slate-800/50">
-                <span className="text-slate-400">Country Filter:</span>
-                <span className="font-mono text-slate-300">IN (India)</span>
+                <span className="text-slate-400">NLI Model:</span>
+                <span className="font-mono text-[10px] text-sky-400 truncate max-w-[130px]" title={nliModel}>
+                  {nliModel}
+                </span>
               </div>
 
               <div className="flex items-center justify-between py-1 border-b border-slate-800/50">
@@ -429,7 +746,7 @@ export default function ResultsPage() {
 
               <div className="flex items-center justify-between py-1">
                 <span className="text-slate-400">Verdict State:</span>
-                <span className="font-semibold text-amber-400">UNVERIFIED (Phase 3)</span>
+                <span className="font-semibold text-amber-400">NO FINAL VERDICT (Phase 4)</span>
               </div>
             </div>
           </div>
@@ -476,7 +793,7 @@ export default function ResultsPage() {
           <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800/80 space-y-2 text-xs text-slate-400">
             <span className="font-semibold text-slate-200 block">Verification Integrity Standard</span>
             <p className="leading-relaxed">
-              TruthLens strictly prohibits generating artificial confidence percentages or synthetic verdicts. Retrieved news records are candidates for comparison, not automatic proof of authenticity.
+              TruthLens strictly prohibits generating artificial truth probabilities or synthetic verdicts. NLI relationships describe logical consistency between a single premise and hypothesis, not the factual truth of the world.
             </p>
           </div>
         </div>

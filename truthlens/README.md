@@ -7,174 +7,183 @@ TruthLens is an evidence-first misinformation and news verification engine desig
 
 ---
 
-## Current Status: Phase 3 (Evidence Retrieval Foundation — Free News API Provider)
+## Current Status: Phase 4 (Claim Decomposition + Evidence Comparison — NLI Foundation)
 
-This repository has completed **Phase 3 (Evidence Retrieval Foundation)**.  
-The system now incorporates the first real evidence candidate retrieval layer powered by **Free News API** through an extensible **Evidence Orchestrator**.
+This repository has completed **Phase 4 (Claim Decomposition + Evidence Comparison)**.  
+The platform now features an operational Natural Language Inference (NLI) comparison layer that decomposes user submissions into atomic claims and evaluates them pairwise against retrieved news candidates.
 
-### What is IMPLEMENTED:
-- [x] **FastAPI Application & API Layer**: Modular backend architecture with Uvicorn server runtime.
-- [x] **Health Check Endpoint**: `GET /api/health` providing service status and connectivity reporting.
-- [x] **Evidence Search Endpoint**: `POST /api/evidence/search` querying news archives via Free News API.
-- [x] **Free News API Provider**: Keyless, public article search integration with strict parameter validation and robust HTTP failure handling.
-- [x] **Evidence Orchestrator**: Extensible abstraction layer performing deterministic deduplication and provider normalization.
-- [x] **Normalized Evidence Model**: Pydantic `NormalizedEvidenceItem` standardizing candidate articles across current and future providers.
-- [x] **Regional Sources Registry**: Documented official gazette and bureau directories for 6 priority jurisdictions.
-- [x] **CORS Configuration**: Configured to allow communication between React frontend (`localhost:5173`) and FastAPI backend (`localhost:8000`).
-- [x] **React / Vite / Tailwind CSS Frontend**: Modern, research-oriented UI with custom typography and dark theme.
-- [x] **Centralized Axios API Service**: Handles health checks and evidence search requests from frontend.
-- [x] **Real Evidence Presentation**: `ResultsPage` renders live candidate evidence records using `EvidenceCard` with safe external links (`rel="noopener noreferrer"`).
-- [x] **Honest Verification Disclosure**: Clear callout: *"These are retrieved evidence sources, not a final fact-check. TruthLens has not yet compared the claim against the evidence."*
+### CRITICAL HONESTY RULE
+> **NLI confidence is model confidence for an evidence relationship, not a probability that a claim is true.**
+>
+> TruthLens strictly does NOT compute a "truth probability" (e.g. "87% true") or render final `TRUE` / `FALSE` / `FAKE` / `REAL` verdicts.  
+> An `ENTAILS` prediction means the cited evidence text logically entails the claim statement. It does NOT prove the claim is objectively true. Complete truth determination belongs to subsequent stages involving source authority, multi-source evidence fusion, and official record verification.
+
+### What is IMPLEMENTED in Phase 4:
+- [x] **Claim Decomposition Service** (`claim_decomposer.py`):
+  - Breaks compound statements into atomic, independently verifiable claims while preserving original meaning.
+  - Detects claim types: `FACTUAL`, `NUMERICAL`, `DATE`, `LOCATION`, `POLICY / GOVERNMENT`, `PERSON / ORGANIZATION`, `EVENT`, `OPINION / SUBJECTIVE`, `UNKNOWN`.
+  - Flags subjective / opinion statements (`is_verifiable = False`) so they are not sent through factual NLI as objective facts.
+- [x] **Independent Language Detection**:
+  - Detects English (`en`), Telugu (`te`), and Tamil (`ta`) independently of jurisdiction.
+  - Avoids assuming language equates to jurisdiction.
+- [x] **Honest Multilingual Strategy**:
+  - Selected NLI model (`cross-encoder/nli-distilroberta-base`) is trained on English benchmarks.
+  - Non-English submissions (Telugu, Tamil) return an honest `UNSUPPORTED_LANGUAGE` state without fabricating unverified inferences or synthetic translations.
+- [x] **Pretrained NLI Cross-Encoder Service** (`nli_service.py`):
+  - Model: `cross-encoder/nli-distilroberta-base` (Hugging Face / Apache 2.0).
+  - Pre-warmed singleton in FastAPI lifespan to prevent per-request reloading.
+  - Verified label mapping: `0: contradiction` &rarr; `CONTRADICTS`, `1: entailment` &rarr; `ENTAILS`, `2: neutral` &rarr; `NEUTRAL`.
+  - Outputs normalized model confidence scores for `entails`, `contradicts`, and `neutral`.
+- [x] **Evidence Text Source Tracking**:
+  - Explicitly determines and tracks what text was analyzed: `full_text`, `description`, `title_description`, or `title`. Never claims an article was verified when only its headline or summary was inspected.
+- [x] **Dedicated & Integrated Endpoints**:
+  - `POST /api/evidence/compare`: Pairwise claim-to-evidence comparison.
+  - `POST /api/evidence/decompose`: Standalone claim decomposition inspection.
+  - `POST /api/evidence/analyze`: Integrated Phase 4 pipeline (decomposition + retrieval + NLI comparison).
+  - `POST /api/evidence/search`: Phase 3 evidence search preserved and backwards-compatible.
+- [x] **Interactive Evidence Matrix UI** (`ResultsPage.jsx`):
+  - Decomposed atomic claims card with type badges and verifiability indicators.
+  - Claim-to-evidence relationship matrix showing: Atomic Claim | Source | Relationship | NLI Model Confidence | Evidence Text Used | What It Establishes.
+  - Filtering by claim ID and relationship type.
+  - Expandable full probability distribution for each pair.
+  - Mandatory Honest Modeling Disclosure notice displayed prominently.
+- [x] **Resource & Performance Limits**:
+  - Limits execution to maximum 10 atomic claims and maximum 10 evidence items per claim to prevent combinatorial explosion.
 
 ### What is NOT Implemented Yet (Planned Future Modules):
-- [ ] **AI / NLP Models (Sentence Transformers / Hugging Face)**: Natural Language Inference (Entailment, Contradiction, Neutral) is NOT yet loaded or running.
-- [ ] **External Search Engine (Brave Search API)**: Web evidence search is NOT active; no external search requests or API keys are configured.
-- [ ] **Fact-Checking ClaimReview Ingestion (Google Fact Check / IFCN)**: ClaimReview schema lookup is NOT yet implemented.
-- [ ] **OCR Engine (EasyOCR)**: Image and WhatsApp screenshot text extraction is NOT yet active.
-- [ ] **Database Persistence (SQLite / ORM)**: Claims caching, user submission history, and persistent audit logs are NOT yet connected.
-- [ ] **Authentication & User Accounts**: Intentionally excluded in this baseline phase.
+- [ ] **Final Truth Verdict Engine**: No `TRUE`, `FALSE`, or `truth_probability` calculations.
+- [ ] **Multi-Source Evidence Fusion**: Cross-source authority weighting and contradiction arbitration.
+- [ ] **ClaimReview Ingestion (Google Fact Check / IFCN)**: Fact-checker metadata schema lookup.
+- [ ] **OCR Engine (EasyOCR)**: Image and WhatsApp screenshot extraction.
+- [ ] **Database Persistence (SQLite / ORM)**: Historical claims caching and persistence.
 
 ---
 
-## Planned Jurisdiction Coverage & Languages
+## NLI Model Architecture & Specifications
 
-### Priority Indian Jurisdictions
-1. **Central Government / India** (Press Information Bureau - PIB, The Gazette of India, Central Ministries)
-2. **Andhra Pradesh** (GoAP Portals, I&PR Department)
-3. **Telangana** (GoTS Portals, Digital Media Wing)
-4. **Tamil Nadu** (DIPR, TNeGA)
-5. **Andaman & Nicobar Islands** (Administration Announcements & Portals)
-6. **Jammu & Kashmir** (DIPR-J&K, Department of Information)
-
-### Initial Language Priorities
-- **English**
-- **Telugu (తెలుగు)**
-- **Tamil (தமிழ்)**
-
-*The architecture is designed to extend dynamically to additional Indian states, Union Territories, and regional languages.*
+| Attribute | Specification |
+|---|---|
+| **Model Name** | `cross-encoder/nli-distilroberta-base` |
+| **Model Source** | [Hugging Face Hub](https://huggingface.co/cross-encoder/nli-distilroberta-base) |
+| **License** | Apache 2.0 |
+| **Architecture** | DistilRoBERTa cross-encoder for sequence classification |
+| **Model Size** | ~328 MB (`model.safetensors`) |
+| **Input Format** | `(premise=evidence_text, hypothesis=atomic_claim)` |
+| **Raw Model Labels** | `0: contradiction`, `1: entailment`, `2: neutral` |
+| **TruthLens Normalized Labels** | `CONTRADICTS`, `ENTAILS`, `NEUTRAL` |
+| **Language Coverage** | English (MNLI & SNLI trained). Telugu & Tamil return `UNSUPPORTED_LANGUAGE`. |
+| **Inference Time** | ~30ms to 60ms per pair on CPU |
 
 ---
 
-## Architecture & Directory Layout
+## API Endpoints
 
+### 1. `POST /api/evidence/compare`
+Compares pre-retrieved evidence items with atomic claims.
+- **Request Body**:
+  ```json
+  {
+    "claims": [
+      { "id": "claim_1", "text": "The Earth orbits the Sun.", "language": "en", "is_verifiable": true }
+    ],
+    "evidence": [
+      {
+        "id": "ev_1",
+        "title": "Solar System",
+        "description": "The Earth travels around the Sun.",
+        "source_url": "https://example.com",
+        "publisher": "Science Daily"
+      }
+    ]
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "comparisons": [
+      {
+        "claim_id": "claim_1",
+        "claim_text": "The Earth orbits the Sun.",
+        "evidence_id": "ev_1",
+        "evidence_title": "Solar System",
+        "evidence_publisher": "Science Daily",
+        "relationship": "ENTAILS",
+        "confidence": 0.9796,
+        "scores": { "entails": 0.9796, "contradicts": 0.0064, "neutral": 0.014 },
+        "evidence_text_source": "description",
+        "relationship_explanation": "Evidence text is logically consistent with this claim."
+      }
+    ],
+    "total_comparisons": 1,
+    "relationship_counts": { "ENTAILS": 1, "CONTRADICTS": 0, "NEUTRAL": 0 },
+    "model_name": "cross-encoder/nli-distilroberta-base",
+    "truncation_applied": false
+  }
+  ```
+
+### 2. `POST /api/evidence/analyze`
+Integrated pipeline executing decomposition, candidate retrieval, and NLI comparison.
+- **Request Body**:
+  ```json
+  {
+    "claim": "India announced a new subsidy for students and ISRO launched a rocket.",
+    "jurisdiction": "india",
+    "max_results": 5
+  }
+  ```
+
+### 3. `POST /api/evidence/decompose`
+Decomposes complex sentences into atomic claims without running NLI.
+
+### 4. `POST /api/evidence/search`
+Phase 3 evidence retrieval endpoint (preserved and backwards-compatible).
+
+---
+
+## Testing & Verification
+
+### Running Automated Test Suite
+From `truthlens/backend`:
+```powershell
+.\.venv\Scripts\python.exe test_phase4.py
 ```
-truthlens/
-│
-├── frontend/                     # React 18 + Vite + Tailwind CSS SPA
-│   ├── public/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Navbar.jsx        # Navigation & live backend health status
-│   │   │   └── Footer.jsx        # Research disclosures & jurisdiction badges
-│   │   ├── pages/
-│   │   │   ├── HomePage.jsx      # Claim submission console
-│   │   │   ├── ResultsPage.jsx   # Results explanation placeholder
-│   │   │   └── HistoryPage.jsx   # Audit history placeholder
-│   │   ├── services/
-│   │   │   └── api.js            # Axios client with environment base URL
-│   │   ├── App.jsx               # React Router layout
-│   │   ├── index.css             # Tailwind base & theme definitions
-│   │   └── main.jsx              # React DOM entry
-│   ├── index.html
-│   ├── package.json
-│   ├── tailwind.config.js
-│   ├── postcss.config.js
-│   ├── vite.config.js
-│   └── .env.example
-│
-├── backend/                      # Python FastAPI application
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py               # FastAPI entry, CORS, and router registry
-│   │   ├── api/
-│   │   │   ├── __init__.py
-│   │   │   └── health.py         # GET /api/health implementation
-│   │   ├── schemas/
-│   │   │   └── __init__.py       # Pydantic schemas (HealthResponse, etc.)
-│   │   ├── services/
-│   │   │   └── __init__.py       # Placeholder for search, NLI, and OCR services
-│   │   ├── models/
-│   │   │   └── __init__.py       # Placeholder for SQLite database models
-│   │   └── sources/
-│   │       └── __init__.py       # Registry for official government portals
-│   ├── requirements.txt          # Minimal Python dependencies
-│   └── .env.example
-│
-├── .gitignore                    # Git exclusions for venv, env files, node_modules
-└── README.md                     # Documentation
+
+Expected output:
+```
+============================================================
+STARTING TRUTHLENS PHASE 4 TEST SUITE
+============================================================
+[PASS] 1. Backend Health
+[PASS] 2. Existing Evidence Search
+[PASS] 3. Simple Single-Sentence Decomposition
+[PASS] 4. Compound Claim Decomposition
+[PASS] 5. Subjective / Opinion Claim Detection
+[PASS] 6. Empty Claim Decomposition Error
+[PASS] 7. English Language Detection
+[PASS] 8. Telugu Language Detection (Independent of Jurisdiction)
+[PASS] 9. Tamil Language Detection (Independent of Jurisdiction)
+[PASS] 10. Uncertain Language Handling
+[PASS] 11. Controlled NLI Entailment
+[PASS] 12. Controlled NLI Contradiction
+[PASS] 13. Controlled NLI Neutral Pair Inspection
+[PASS] 14. Unsupported Language NLI Handling (Telugu)
+[PASS] 15. Evidence Text Source Selection Tracking
+[PASS] 16. Subjective Claim In NLI Comparison
+[PASS] 17. Empty Evidence Text Handling
+[PASS] 18. Comparison Limit / Truncation Check
+[PASS] 19. Invalid Request Validation (Empty claims list)
+[PASS] 20. Integrated /api/evidence/analyze
+[PASS] 21. Strict Verdict Absence Audit
+============================================================
+TEST RESULTS: 21/21 PASSED
+============================================================
 ```
 
----
-
-## Getting Started: Local Development
-
-### Prerequisites
-- **Python**: 3.10+ (tested with Python 3.14)
-- **Node.js**: 18.0+ (tested with Node.js v22.19)
-- **npm**: 9.0+ (tested with npm 11.7)
-
----
-
-### Backend Setup
-
-1. **Navigate to the backend directory**:
-   ```bash
-   cd truthlens/backend
-   ```
-
-2. **Create and activate a virtual environment**:
-   ```bash
-   # Windows (PowerShell)
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-
-   # Linux / macOS
-   python -m venv .venv
-   source .venv/bin/activate
-   ```
-
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Run the backend development server**:
-   ```bash
-   uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-   ```
-
-5. **Verify backend**:
-   - Health check: [http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
-   - Interactive OpenAPI documentation: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-
----
-
-### Frontend Setup
-
-1. **Navigate to the frontend directory**:
-   ```bash
-   cd truthlens/frontend
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Environment configuration**:
-   Ensure `.env` exists (copied from `.env.example`):
-   ```env
-   VITE_API_BASE_URL=http://localhost:8000
-   ```
-
-4. **Run the frontend development server**:
-   ```bash
-   npm run dev
-   ```
-
-5. **Access the web application**:
-   - Open [http://localhost:5173](http://localhost:5173) in your browser.
-   - The top navigation bar will automatically ping `GET /api/health` and indicate `Backend: Online` when connected.
+### Running Frontend Production Build
+From `truthlens/frontend`:
+```powershell
+npm.cmd run build
+```
 
 ---
 
@@ -185,5 +194,6 @@ truthlens/
 | **Phase 1** | Foundation: FastAPI + React + Vite + Tailwind + Health check | **Completed** |
 | **Phase 2** | Frontend Verification Experience: Form, URL validation, EvidenceCard, Results Shell | **Completed** |
 | **Phase 3** | Evidence Retrieval Foundation: Free News API Provider, Orchestrator, Normalization | **Completed** |
-| **Phase 4** | Multilingual NLI & Claim Decomposition: Sentence Transformers, Cross-lingual inference | Next |
-| **Phase 5** | Persistence & Audit: SQLite claims database, historical tracking | Upcoming |
+| **Phase 4** | Claim Decomposition + Evidence Comparison: NLI Foundation, Atomic Matrix | **Completed** |
+| **Phase 5** | Persistence & Audit: SQLite claims database, historical tracking | Next |
+
