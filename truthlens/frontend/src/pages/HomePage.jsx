@@ -4,21 +4,12 @@ import {
   ShieldCheck, 
   Search, 
   Link as LinkIcon, 
-  FileText, 
   AlertCircle, 
   ArrowDown, 
   ArrowRight,
-  Database,
-  Cpu,
-  Layers,
-  Sparkles,
-  CheckCircle2,
   Clock,
-  RotateCcw,
   Loader2,
-  FileSearch,
-  Scale,
-  Compass
+  FileSearch
 } from 'lucide-react';
 import { searchEvidence } from '../services/api';
 
@@ -58,7 +49,7 @@ export const validateArticleUrl = (urlString) => {
   } catch {
     return { 
       valid: false, 
-      error: 'Please enter a valid URL format (e.g., https://example.com/article).' 
+      error: 'Please enter a valid URL format (e.g., https://example.com/news/article).' 
     };
   }
 };
@@ -68,35 +59,21 @@ export default function HomePage() {
 
   // Controlled form state
   const [headline, setHeadline] = useState('');
-  const [newsText, setNewsText] = useState('');
   const [newsUrl, setNewsUrl] = useState('');
-  const [jurisdiction, setJurisdiction] = useState(JURISDICTIONS[0].name);
-  const [language, setLanguage] = useState(LANGUAGES[0].name);
 
   // Validation & Submission state
   const [formErrors, setFormErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionFeedback, setSubmissionFeedback] = useState(null);
 
-  // Maximum character thresholds for counters
+  // Maximum character threshold for headline counter
   const MAX_HEADLINE_LENGTH = 350;
-  const MAX_TEXT_LENGTH = 5000;
 
   const scrollToWorkspace = () => {
     const el = document.getElementById('verify-workspace');
     if (el) {
       el.scrollIntoView({ behavior: 'smooth' });
     }
-  };
-
-  const handleReset = () => {
-    setHeadline('');
-    setNewsText('');
-    setNewsUrl('');
-    setJurisdiction(JURISDICTIONS[0].name);
-    setLanguage(LANGUAGES[0].name);
-    setFormErrors({});
-    setSubmissionFeedback(null);
   };
 
   const handleHeadlineChange = (e) => {
@@ -106,13 +83,6 @@ export default function HomePage() {
       if (formErrors.headline) {
         setFormErrors(prev => ({ ...prev, headline: null }));
       }
-    }
-  };
-
-  const handleNewsTextChange = (e) => {
-    const value = e.target.value;
-    if (value.length <= MAX_TEXT_LENGTH) {
-      setNewsText(value);
     }
   };
 
@@ -158,29 +128,23 @@ export default function HomePage() {
       message: 'Querying Free News API via TruthLens Evidence Orchestrator...',
     });
 
-    // Map language code (default 'en')
-    const selectedLangObj = LANGUAGES.find(l => l.name === language);
-    const langCode = selectedLangObj ? selectedLangObj.code : 'en';
-
     try {
       const result = await searchEvidence({
         claim: headline.trim(),
-        jurisdiction,
-        language: langCode,
+        jurisdiction: 'Central Government / India',
+        language: 'en',
         country: 'IN',
         size: 10,
       });
 
       setIsSubmitting(false);
 
-      if (result.success) {
+      if (result && result.success) {
         navigate('/results', {
           state: {
             headline: headline.trim(),
-            newsText: newsText.trim(),
+            url: newsUrl.trim(),
             newsUrl: newsUrl.trim(),
-            jurisdiction,
-            language,
             submittedAt: new Date().toISOString(),
             evidenceResults: result.data.results || [],
             evidenceTotal: result.data.total_found || 0,
@@ -192,20 +156,17 @@ export default function HomePage() {
           },
         });
       } else {
-        // Navigate with structured provider error so ResultsPage can present the state honestly
         navigate('/results', {
           state: {
             headline: headline.trim(),
-            newsText: newsText.trim(),
+            url: newsUrl.trim(),
             newsUrl: newsUrl.trim(),
-            jurisdiction,
-            language,
             submittedAt: new Date().toISOString(),
             evidenceResults: [],
             evidenceTotal: 0,
             evidenceCount: 0,
-            evidenceError: result.error,
-            errorCode: result.code,
+            evidenceError: result?.error || 'Verification request failed',
+            errorCode: result?.code,
             status: 'Provider Error',
           },
         });
@@ -288,7 +249,7 @@ export default function HomePage() {
                 </span>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Provide a news headline, full article text, or source link. Select the target Indian jurisdiction and language for contextual routing.
+                Provide a news headline or article URL. The engine automatically detects jurisdiction and language to route verification against primary evidence sources.
               </p>
             </div>
           </div>
@@ -341,7 +302,7 @@ export default function HomePage() {
               <span>Claim Submission Console</span>
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span>Jurisdiction &amp; Language Routing</span>
+              <span>Evidence-Based Verification</span>
             </div>
           </div>
 
@@ -370,58 +331,11 @@ export default function HomePage() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 space-y-6">
-            {/* Metadata Selectors: Jurisdiction and Language */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="jurisdiction-select" className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Target Jurisdiction</span>
-                </label>
-                <select
-                  id="jurisdiction-select"
-                  value={jurisdiction}
-                  onChange={(e) => setJurisdiction(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
-                >
-                  {JURISDICTIONS.map((j) => (
-                    <option key={j.id} value={j.name}>
-                      {j.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Routes claim against regional portals and state information bureaus.
-                </p>
-              </div>
-
-              <div>
-                <label htmlFor="language-select" className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Scale className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Primary Content Language</span>
-                </label>
-                <select
-                  id="language-select"
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
-                >
-                  {LANGUAGES.map((l) => (
-                    <option key={l.id} value={l.name}>
-                      {l.name} ({l.native})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Multilingual NLI models will process regional scripts in later phases.
-                </p>
-              </div>
-            </div>
-
-            {/* 1. Headline / Claim Input (Required) */}
+            {/* 1. Headline / Core Claim (Required) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label htmlFor="headline-input" className="block text-xs font-medium text-slate-200">
-                  Headline or Core Claim <span className="text-rose-400">*</span>
+                  Headline / Core Claim <span className="text-rose-400">*</span>
                 </label>
                 <span className={`text-[11px] font-mono ${
                   headline.length >= MAX_HEADLINE_LENGTH ? 'text-amber-400' : 'text-slate-400'
@@ -432,7 +346,7 @@ export default function HomePage() {
               <input
                 id="headline-input"
                 type="text"
-                placeholder="e.g., Central Government announces revised criteria for citizen welfare subsidies..."
+                placeholder="Enter the news headline or claim you want to verify..."
                 value={headline}
                 onChange={handleHeadlineChange}
                 disabled={isSubmitting}
@@ -450,40 +364,19 @@ export default function HomePage() {
               )}
             </div>
 
-            {/* 2. News Article Text (Optional Context) */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label htmlFor="text-input" className="block text-xs font-medium text-slate-300">
-                  Extended Article Text / Message Body <span className="text-slate-400 font-normal">(Optional)</span>
-                </label>
-                <span className="text-[11px] font-mono text-slate-400">
-                  {newsText.length} / {MAX_TEXT_LENGTH}
-                </span>
-              </div>
-              <textarea
-                id="text-input"
-                rows={4}
-                placeholder="Paste the full news article body, circulating message excerpt, or social media post content here..."
-                value={newsText}
-                onChange={handleNewsTextChange}
-                disabled={isSubmitting}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 transition-colors"
-              />
-            </div>
-
-            {/* 3. Reference URL (Optional) */}
+            {/* 2. Article URL (Optional) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label htmlFor="url-input" className="block text-xs font-medium text-slate-300 flex items-center gap-1.5">
                   <LinkIcon className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Article or Reference URL <span className="text-slate-400 font-normal">(Optional)</span></span>
+                  <span>Article URL <span className="text-slate-400 font-normal">(Optional)</span></span>
                 </label>
                 <span className="text-[11px] text-slate-400">Must begin with http:// or https://</span>
               </div>
               <input
                 id="url-input"
                 type="text"
-                placeholder="https://news-portal.example/story/item-id"
+                placeholder="https://example.com/news/article"
                 value={newsUrl}
                 onChange={handleUrlChange}
                 disabled={isSubmitting}
@@ -508,35 +401,23 @@ export default function HomePage() {
                 <span>Phase 2: Submissions route to the structured results presentation shell.</span>
               </div>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  disabled={isSubmitting || (!headline && !newsText && !newsUrl)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium text-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reset</span>
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-sky-800 disabled:cursor-not-allowed text-white font-medium text-sm transition-colors shadow-sm cursor-pointer"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Submitting Claim...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-4 h-4" />
-                      <span>Submit for Verification</span>
-                    </>
-                  )}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-sky-800 disabled:cursor-not-allowed text-white font-medium text-sm transition-colors shadow-sm cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Submitting Claim...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4" />
+                    <span>Submit for Verification</span>
+                  </>
+                )}
+              </button>
             </div>
           </form>
         </div>
