@@ -7,19 +7,22 @@ TruthLens is an evidence-first misinformation and news verification engine desig
 
 ---
 
-## Current Status: Phase 1 (Initial Foundation)
+## Current Status: Phase 2 (Frontend Verification Experience)
 
-This repository is currently in its **Initial Foundation Phase**.  
-Only the core architectural skeleton, API routing foundation, and user interface scaffolding are implemented.
+This repository has completed **Phase 2 (Frontend Verification Experience)**.  
+The interactive verification workspace, URL validation, routing selectors, EvidenceCard component, and results presentation shell are fully implemented.
 
-### What is IMPLEMENTED in this Phase:
+### What is IMPLEMENTED:
 - [x] **FastAPI Application Skeleton**: Modular backend architecture with Uvicorn server runtime.
 - [x] **Health Check Endpoint**: `GET /api/health` providing service status and connectivity reporting.
 - [x] **CORS Configuration**: Configured to allow communication between React frontend (`localhost:5173`) and FastAPI backend (`localhost:8000`).
 - [x] **React / Vite / Tailwind CSS Frontend**: Modern, research-oriented UI with custom typography and dark theme.
 - [x] **Axios API Service Client**: Centralized API abstraction reading `VITE_API_BASE_URL` with health-check monitoring in the Navbar.
-- [x] **Route Architecture**: Client-side routing with React Router for `/` (Home/Verification), `/results` (Results Placeholder), and `/history` (Audit History Placeholder).
-- [x] **Jurisdiction & Language Framework**: UI controls and metadata routing scaffolds for target Indian jurisdictions and languages.
+- [x] **Route Architecture**: Client-side routing with React Router for `/` (Home/Verification), `/results` (Results Presentation Shell), and `/history` (Audit History Placeholder).
+- [x] **Claim Verification Workspace**: Controlled input state, character counters, headline required validation, strict protocol URL validation (`http:`, `https:`).
+- [x] **Jurisdiction & Language Selectors**: Configured for Indian jurisdictions (Central Govt, AP, TS, TN, A&N, J&K) and regional languages (English, Telugu, Tamil).
+- [x] **EvidenceCard Component**: Reusable component supporting source names, types, external links (`rel="noopener noreferrer"`), and development empty states.
+- [x] **Results Presentation Shell**: Displays submitted payload, topic context, authoritative source registry, and clear "Awaiting Live Verification" status (no fake results).
 
 ### What is NOT Implemented Yet (Planned Future Modules):
 - [ ] **AI / NLP Models (Sentence Transformers / Hugging Face)**: Natural Language Inference (Entailment, Contradiction, Neutral) is NOT yet loaded or running.
@@ -178,7 +181,7 @@ truthlens/
 | Phase | Focus | Status |
 |---|---|---|
 | **Phase 1** | Foundation: FastAPI + React + Vite + Tailwind + Health check | **Completed** |
-| **Phase 2** | Evidence Retrieval: Brave Search API, Official Gazette connectors | Next |
-| **Phase 3** | Fact-Check Matching: ClaimReview / Google Fact Check Tools API | Upcoming |
+| **Phase 2** | Frontend Verification Experience: Form, URL validation, EvidenceCard, Results Shell | **Completed** |
+| **Phase 3** | Evidence & Sources: Brave Search API, Official Gazette connectors | Next |
 | **Phase 4** | Multilingual NLI & OCR: Cross-lingual entailment models, EasyOCR | Upcoming |
 | **Phase 5** | Persistence & Audit: SQLite claims database, historical tracking | Upcoming |

@@ -24,7 +24,7 @@ export default function Footer() {
               <span>TruthLens</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              An evidence-first misinformation verification platform designed to validate claims against official gazettes, press bureaus, and authoritative public records.
+              Evidence-based news and claim verification. Designed to validate public assertions against official gazettes, press bureaus, and authoritative public records.
             </p>
             <p className="text-xs font-mono text-sky-400">
               "Evidence first, explanation second."
@@ -35,7 +35,7 @@ export default function Footer() {
           <div className="space-y-2">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-200 uppercase tracking-wider">
               <MapPin className="w-4 h-4 text-sky-400" />
-              <span>Priority Jurisdictions</span>
+              <span>Priority Indian Jurisdictions</span>
             </div>
             <div className="flex flex-wrap gap-1.5 pt-1">
               {jurisdictions.map((item) => (
@@ -67,12 +67,12 @@ export default function Footer() {
             </div>
 
             <div className="pt-2 border-t border-slate-800/80">
-              <div className="flex items-center gap-1.5 text-[11px] text-amber-400/90 font-mono">
+              <div className="flex items-center gap-1.5 text-[11px] text-sky-400 font-mono">
                 <Terminal className="w-3.5 h-3.5" />
-                <span>Phase 1: Foundation Layer Active</span>
+                <span>Phase 2: Frontend Verification Experience Active</span>
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                AI/NLI comparison models, Brave search, and OCR integrations scheduled for upcoming releases.
+                Brave Search API, Hugging Face NLI, ClaimReview, and SQLite storage planned for upcoming releases.
               </p>
             </div>
           </div>
@@ -80,7 +80,7 @@ export default function Footer() {
 
         <div className="mt-8 pt-4 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
           <div>
-            &copy; {new Date().getFullYear()} TruthLens Platform. Architecture Foundation.
+            &copy; {new Date().getFullYear()} TruthLens Platform. Evidence-based news and claim verification.
           </div>
           <div className="font-mono text-[11px] text-slate-400">
             Backend: FastAPI &bull; Frontend: React/Vite/Tailwind
