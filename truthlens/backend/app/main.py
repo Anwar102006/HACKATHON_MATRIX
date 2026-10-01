@@ -4,13 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from app.api.health import router as health_router
+from app.api.evidence import router as evidence_router
 
 load_dotenv()
 
 app = FastAPI(
     title="TruthLens Backend",
-    description="Evidence-based misinformation and news verification engine API - Foundation Phase",
-    version="0.1.0",
+    description="Evidence-based misinformation and news verification engine API — Phase 3 Evidence Retrieval",
+    version="0.3.0",
 )
 
 # CORS configuration for frontend communication during local development
@@ -37,6 +38,7 @@ app.add_middleware(
 
 # Mount API routers
 app.include_router(health_router, prefix="/api", tags=["System"])
+app.include_router(evidence_router, prefix="/api", tags=["Evidence Retrieval"])
 
 
 @app.get("/")

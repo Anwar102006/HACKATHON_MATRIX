@@ -6,7 +6,7 @@ import {
   Link as LinkIcon, 
   FileText, 
   AlertCircle, 
-  ArrowDown,
+  ArrowDown, 
   ArrowRight,
   Database,
   Cpu,
@@ -20,6 +20,7 @@ import {
   Scale,
   Compass
 } from 'lucide-react';
+import { searchEvidence } from '../services/api';
 
 export const JURISDICTIONS = [
   { id: 'central', name: 'Central Government / India', description: 'PIB, The Gazette of India, Union Ministries' },
@@ -31,9 +32,9 @@ export const JURISDICTIONS = [
 ];
 
 export const LANGUAGES = [
-  { id: 'en', name: 'English', native: 'English' },
-  { id: 'te', name: 'Telugu', native: 'తెలుగు' },
-  { id: 'ta', name: 'Tamil', native: 'தமிழ்' },
+  { id: 'en', code: 'en', name: 'English', native: 'English' },
+  { id: 'te', code: 'te', name: 'Telugu', native: 'తెలుగు' },
+  { id: 'ta', code: 'ta', name: 'Tamil', native: 'தமிழ்' },
 ];
 
 /**
@@ -123,7 +124,7 @@ export default function HomePage() {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
 
@@ -154,24 +155,68 @@ export default function HomePage() {
     setIsSubmitting(true);
     setSubmissionFeedback({
       type: 'info',
-      message: 'Processing submission payload...',
+      message: 'Querying Free News API via TruthLens Evidence Orchestrator...',
     });
 
-    // Simulate structured processing and route to /results with payload
-    setTimeout(() => {
-      setIsSubmitting(false);
-      navigate('/results', {
-        state: {
-          headline: headline.trim(),
-          newsText: newsText.trim(),
-          newsUrl: newsUrl.trim(),
-          jurisdiction,
-          language,
-          submittedAt: new Date().toISOString(),
-          status: 'Awaiting Live Verification',
-        },
+    // Map language code (default 'en')
+    const selectedLangObj = LANGUAGES.find(l => l.name === language);
+    const langCode = selectedLangObj ? selectedLangObj.code : 'en';
+
+    try {
+      const result = await searchEvidence({
+        claim: headline.trim(),
+        jurisdiction,
+        language: langCode,
+        country: 'IN',
+        size: 10,
       });
-    }, 700);
+
+      setIsSubmitting(false);
+
+      if (result.success) {
+        navigate('/results', {
+          state: {
+            headline: headline.trim(),
+            newsText: newsText.trim(),
+            newsUrl: newsUrl.trim(),
+            jurisdiction,
+            language,
+            submittedAt: new Date().toISOString(),
+            evidenceResults: result.data.results || [],
+            evidenceTotal: result.data.total_found || 0,
+            evidenceCount: result.data.results_count || 0,
+            providerTookMs: result.data.took_ms,
+            provider: result.data.provider || 'free_news_api',
+            warning: result.data.warning,
+            status: 'Evidence Retrieved',
+          },
+        });
+      } else {
+        // Navigate with structured provider error so ResultsPage can present the state honestly
+        navigate('/results', {
+          state: {
+            headline: headline.trim(),
+            newsText: newsText.trim(),
+            newsUrl: newsUrl.trim(),
+            jurisdiction,
+            language,
+            submittedAt: new Date().toISOString(),
+            evidenceResults: [],
+            evidenceTotal: 0,
+            evidenceCount: 0,
+            evidenceError: result.error,
+            errorCode: result.code,
+            status: 'Provider Error',
+          },
+        });
+      }
+    } catch (err) {
+      setIsSubmitting(false);
+      setSubmissionFeedback({
+        type: 'error',
+        message: err.message || 'An error occurred while connecting to the evidence service.',
+      });
+    }
   };
 
   return (
@@ -192,9 +237,9 @@ export default function HomePage() {
           TruthLens is engineered to validate assertions through traceable evidence. The platform is designed to extract claims, detect jurisdiction and language, retrieve official government gazettes, and compare assertions using explainable inference.
         </p>
 
-        {/* Phase 2 Scope Notice */}
+        {/* Phase 3 Scope Notice */}
         <div className="inline-block max-w-xl mx-auto p-3 rounded-lg bg-slate-900/90 border border-slate-800 text-xs text-slate-400">
-          <span className="font-semibold text-slate-200">Phase 2 Status:</span> Interactive verification console active. Live external web search, Hugging Face NLI reasoning, and OCR image parsing are being integrated in upcoming phases.
+          <span className="font-semibold text-slate-200">Phase 3 Status:</span> Real evidence candidate retrieval layer active via Free News API provider. Natural Language Inference (NLI) and ClaimReview matching scheduled for upcoming releases.
         </div>
 
         <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-4">

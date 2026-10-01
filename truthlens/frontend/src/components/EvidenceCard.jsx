@@ -1,38 +1,58 @@
 import React from 'react';
-import { ExternalLink, Calendar, Shield, FileCheck, AlertCircle } from 'lucide-react';
+import { ExternalLink, Calendar, Globe, AlertCircle, Newspaper } from 'lucide-react';
 
 /**
  * Reusable EvidenceCard component for TruthLens.
  *
- * Designed to represent retrieved evidence items from authoritative sources,
- * official gazettes, press releases, or fact-checking bodies.
+ * Renders normalized candidate evidence items retrieved from news archives,
+ * official gazettes, or press bureaus.
  *
- * In Phase 2, this renders a clean structured shell with development/empty indicators
- * if live evidence retrieval is not yet active.
+ * NOTE: Every candidate evidence card represents an empirical reference item,
+ * NOT an automated proof or judgment of truth.
  */
 export default function EvidenceCard({
+  item,
   sourceName,
   sourceType,
   articleTitle,
   url,
   publicationDate,
-  evidenceRelationship,
+  description,
   explanation,
+  provider,
+  language,
+  country,
   isEmptyState = false,
   emptyMessage,
 }) {
+  // Support either single normalized item object or individual props
+  const finalTitle = item?.title || articleTitle || 'Untitled Evidence Candidate';
+  const finalPublisher = item?.publisher || sourceName || 'News Publisher';
+  const finalUrl = item?.source_url || item?.url || url;
+  const rawDate = item?.published_at || item?.publicationDate || publicationDate;
+  const finalDate = rawDate ? new Date(rawDate).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }) : null;
+  const finalDescription = item?.description || description || explanation;
+  const finalSourceType = item?.source_type || sourceType || 'news';
+  const finalProvider = item?.provider || provider || 'free_news_api';
+  const finalLang = item?.language || language;
+  const finalCountry = item?.country || country;
+
   if (isEmptyState) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-center space-y-3">
+      <div className="rounded-xl border border-dashed border-slate-800 bg-slate-900/40 p-8 text-center space-y-3">
         <div className="w-10 h-10 mx-auto rounded-full bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-400">
-          <AlertCircle className="w-5 h-5 text-sky-400" />
+          <AlertCircle className="w-5 h-5 text-amber-400" />
         </div>
         <div className="space-y-1">
           <h4 className="text-sm font-semibold text-slate-300">
-            {emptyMessage || 'No Live Evidence Retrieved Yet'}
+            {emptyMessage || 'No Relevant Evidence Sources Found'}
           </h4>
           <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-            The external search connector (Brave Search API) and official gazette retrieval pipelines are scheduled for upcoming phases. No fabricated citations or simulated search results are shown.
+            No matching news articles or reports were indexed for this query within the rolling 30-day window. Absence of retrieved news articles does not mean the claim is false.
           </p>
         </div>
       </div>
@@ -41,66 +61,73 @@ export default function EvidenceCard({
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 space-y-4 hover:border-slate-700 transition-colors shadow-sm">
-      {/* Header: Source Name, Type, and Evidence Relationship */}
+      {/* Header: Publisher / Source Name, Source Type, Provider Tag */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-md bg-sky-950 border border-sky-800 flex items-center justify-center text-sky-400">
-            <Shield className="w-3.5 h-3.5" />
+            <Newspaper className="w-3.5 h-3.5" />
           </div>
           <div>
             <span className="text-xs font-semibold text-slate-200">
-              {sourceName || 'Authoritative Source'}
+              {finalPublisher}
             </span>
-            {sourceType && (
-              <span className="ml-2 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                {sourceType}
-              </span>
-            )}
+            <span className="ml-2 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono">
+              {finalSourceType}
+            </span>
           </div>
         </div>
 
-        {evidenceRelationship && (
-          <div className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-sky-300 border border-slate-700">
-            <FileCheck className="w-3 h-3 text-sky-400" />
-            <span>{evidenceRelationship}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {finalCountry && (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+              {finalCountry}
+            </span>
+          )}
+          {finalLang && (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 uppercase">
+              {finalLang}
+            </span>
+          )}
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800">
+            {finalProvider === 'free_news_api' ? 'Free News API' : finalProvider}
+          </span>
+        </div>
       </div>
 
-      {/* Article Title and External Link */}
+      {/* Article Title and Link */}
       <div className="space-y-1.5">
         <h4 className="text-sm font-semibold text-white leading-snug">
-          {articleTitle || 'Document / Archive Citation'}
+          {finalTitle}
         </h4>
 
-        {url ? (
+        {finalUrl ? (
           <a
-            href={url}
+            href={finalUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 transition-colors break-all group"
           >
-            <span className="group-hover:underline">{url}</span>
-            <ExternalLink className="w-3 h-3 flex-shrink-0" />
+            <span className="group-hover:underline">{finalUrl}</span>
+            <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
           </a>
         ) : (
-          <span className="text-xs text-slate-400 italic">No external URL provided</span>
+          <span className="text-xs text-slate-400 italic">No external URL available</span>
         )}
       </div>
 
-      {/* Explanation / Context */}
-      {explanation && (
+      {/* Description / Summary snippet */}
+      {finalDescription && (
         <div className="text-xs text-slate-300 bg-slate-950/70 border border-slate-800/80 rounded-lg p-3 leading-relaxed">
-          <span className="font-semibold text-slate-400 block mb-1">Evidence Summary:</span>
-          {explanation}
+          <span className="font-semibold text-slate-400 block mb-1">Article Excerpt:</span>
+          {finalDescription}
         </div>
       )}
 
       {/* Footer: Date metadata */}
-      {publicationDate && (
+      {finalDate && (
         <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono pt-1">
-          <Calendar className="w-3 h-3 text-slate-400" />
-          <span>Published: {publicationDate}</span>
+          <Calendar className="w-3.5 h-3.5 text-slate-400" />
+          <span>Published: {finalDate}</span>
         </div>
       )}
     </div>

@@ -7,22 +7,24 @@ TruthLens is an evidence-first misinformation and news verification engine desig
 
 ---
 
-## Current Status: Phase 2 (Frontend Verification Experience)
+## Current Status: Phase 3 (Evidence Retrieval Foundation — Free News API Provider)
 
-This repository has completed **Phase 2 (Frontend Verification Experience)**.  
-The interactive verification workspace, URL validation, routing selectors, EvidenceCard component, and results presentation shell are fully implemented.
+This repository has completed **Phase 3 (Evidence Retrieval Foundation)**.  
+The system now incorporates the first real evidence candidate retrieval layer powered by **Free News API** through an extensible **Evidence Orchestrator**.
 
 ### What is IMPLEMENTED:
-- [x] **FastAPI Application Skeleton**: Modular backend architecture with Uvicorn server runtime.
+- [x] **FastAPI Application & API Layer**: Modular backend architecture with Uvicorn server runtime.
 - [x] **Health Check Endpoint**: `GET /api/health` providing service status and connectivity reporting.
+- [x] **Evidence Search Endpoint**: `POST /api/evidence/search` querying news archives via Free News API.
+- [x] **Free News API Provider**: Keyless, public article search integration with strict parameter validation and robust HTTP failure handling.
+- [x] **Evidence Orchestrator**: Extensible abstraction layer performing deterministic deduplication and provider normalization.
+- [x] **Normalized Evidence Model**: Pydantic `NormalizedEvidenceItem` standardizing candidate articles across current and future providers.
+- [x] **Regional Sources Registry**: Documented official gazette and bureau directories for 6 priority jurisdictions.
 - [x] **CORS Configuration**: Configured to allow communication between React frontend (`localhost:5173`) and FastAPI backend (`localhost:8000`).
 - [x] **React / Vite / Tailwind CSS Frontend**: Modern, research-oriented UI with custom typography and dark theme.
-- [x] **Axios API Service Client**: Centralized API abstraction reading `VITE_API_BASE_URL` with health-check monitoring in the Navbar.
-- [x] **Route Architecture**: Client-side routing with React Router for `/` (Home/Verification), `/results` (Results Presentation Shell), and `/history` (Audit History Placeholder).
-- [x] **Claim Verification Workspace**: Controlled input state, character counters, headline required validation, strict protocol URL validation (`http:`, `https:`).
-- [x] **Jurisdiction & Language Selectors**: Configured for Indian jurisdictions (Central Govt, AP, TS, TN, A&N, J&K) and regional languages (English, Telugu, Tamil).
-- [x] **EvidenceCard Component**: Reusable component supporting source names, types, external links (`rel="noopener noreferrer"`), and development empty states.
-- [x] **Results Presentation Shell**: Displays submitted payload, topic context, authoritative source registry, and clear "Awaiting Live Verification" status (no fake results).
+- [x] **Centralized Axios API Service**: Handles health checks and evidence search requests from frontend.
+- [x] **Real Evidence Presentation**: `ResultsPage` renders live candidate evidence records using `EvidenceCard` with safe external links (`rel="noopener noreferrer"`).
+- [x] **Honest Verification Disclosure**: Clear callout: *"These are retrieved evidence sources, not a final fact-check. TruthLens has not yet compared the claim against the evidence."*
 
 ### What is NOT Implemented Yet (Planned Future Modules):
 - [ ] **AI / NLP Models (Sentence Transformers / Hugging Face)**: Natural Language Inference (Entailment, Contradiction, Neutral) is NOT yet loaded or running.
@@ -182,6 +184,6 @@ truthlens/
 |---|---|---|
 | **Phase 1** | Foundation: FastAPI + React + Vite + Tailwind + Health check | **Completed** |
 | **Phase 2** | Frontend Verification Experience: Form, URL validation, EvidenceCard, Results Shell | **Completed** |
-| **Phase 3** | Evidence & Sources: Brave Search API, Official Gazette connectors | Next |
-| **Phase 4** | Multilingual NLI & OCR: Cross-lingual entailment models, EasyOCR | Upcoming |
+| **Phase 3** | Evidence Retrieval Foundation: Free News API Provider, Orchestrator, Normalization | **Completed** |
+| **Phase 4** | Multilingual NLI & Claim Decomposition: Sentence Transformers, Cross-lingual inference | Next |
 | **Phase 5** | Persistence & Audit: SQLite claims database, historical tracking | Upcoming |

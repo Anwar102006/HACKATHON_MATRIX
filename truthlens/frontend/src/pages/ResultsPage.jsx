@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useLocation, NavLink, useNavigate } from 'react-router-dom';
 import { 
   Activity, 
@@ -10,15 +10,18 @@ import {
   Globe, 
   Layers, 
   Search, 
-  CheckCircle2, 
   Clock, 
   AlertCircle,
   HelpCircle,
   Compass,
   FileCheck,
-  RotateCcw
+  RotateCcw,
+  Loader2,
+  Info,
+  CheckCircle2
 } from 'lucide-react';
 import EvidenceCard from '../components/EvidenceCard';
+import { searchEvidence } from '../services/api';
 
 export default function ResultsPage() {
   const location = useLocation();
@@ -27,7 +30,7 @@ export default function ResultsPage() {
   // Retrieve submitted payload from navigation state (if available)
   const submission = location.state || null;
 
-  // Fallback defaults if accessed without direct submission
+  // State from submission
   const headline = submission?.headline || null;
   const newsText = submission?.newsText || '';
   const newsUrl = submission?.newsUrl || '';
@@ -36,6 +39,14 @@ export default function ResultsPage() {
   const submittedAt = submission?.submittedAt 
     ? new Date(submission.submittedAt).toLocaleString() 
     : null;
+
+  // Evidence state
+  const [evidenceItems, setEvidenceItems] = useState(submission?.evidenceResults || []);
+  const [evidenceTotal, setEvidenceTotal] = useState(submission?.evidenceTotal || 0);
+  const [evidenceCount, setEvidenceCount] = useState(submission?.evidenceCount || submission?.evidenceResults?.length || 0);
+  const [providerTookMs, setProviderTookMs] = useState(submission?.providerTookMs || null);
+  const [evidenceError, setEvidenceError] = useState(submission?.evidenceError || null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Authoritative sources mapped by jurisdiction
   const jurisdictionSourcesMap = {
@@ -65,6 +76,34 @@ export default function ResultsPage() {
   };
 
   const relevantSources = jurisdictionSourcesMap[jurisdiction] || jurisdictionSourcesMap['Central Government / India'];
+
+  // Handle re-fetching evidence directly
+  const handleRefreshEvidence = async () => {
+    if (!headline || isRefreshing) return;
+    setIsRefreshing(true);
+    setEvidenceError(null);
+
+    const langCode = language.toLowerCase().includes('telugu') ? 'te' : language.toLowerCase().includes('tamil') ? 'ta' : 'en';
+
+    const result = await searchEvidence({
+      claim: headline,
+      jurisdiction,
+      language: langCode,
+      country: 'IN',
+      size: 10,
+    });
+
+    setIsRefreshing(false);
+    if (result.success) {
+      setEvidenceItems(result.data.results || []);
+      setEvidenceTotal(result.data.total_found || 0);
+      setEvidenceCount(result.data.results_count || 0);
+      setProviderTookMs(result.data.took_ms);
+      setEvidenceError(null);
+    } else {
+      setEvidenceError(result.error);
+    }
+  };
 
   // Empty state: accessed directly without submission
   if (!headline) {
@@ -110,36 +149,75 @@ export default function ResultsPage() {
           </NavLink>
           <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
             <Activity className="w-6 h-6 text-sky-400" />
-            <span>Verification Assessment Shell</span>
+            <span>Evidence Assessment &amp; Retrieval</span>
           </h1>
         </div>
 
-        <button
-          onClick={() => navigate('/')}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition-colors w-fit cursor-pointer"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Check Another Claim</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefreshEvidence}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-medium text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+            title="Re-run evidence search against Free News API"
+          >
+            {isRefreshing ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
+            ) : (
+              <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+            )}
+            <span>{isRefreshing ? 'Retrieving...' : 'Refresh Evidence'}</span>
+          </button>
+
+          <button
+            onClick={() => navigate('/')}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition-colors cursor-pointer"
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span>Check Another Claim</span>
+          </button>
+        </div>
       </div>
 
-      {/* Verification Status Banner (Clear Non-Fabricated Status) */}
-      <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-200 text-xs">
+      {/* Mandatory Honest Verification Disclosure Callout */}
+      <div className="p-4 rounded-xl bg-sky-950/40 border border-sky-800/80 flex items-start gap-3 text-xs text-sky-200 shadow-sm">
+        <Info className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <span className="font-semibold text-sky-300 block">
+            Evidence Candidates Disclosure (Phase 3 Foundation)
+          </span>
+          <p className="text-sky-200/90 leading-relaxed">
+            These are retrieved evidence sources, not a final fact-check. TruthLens has not yet compared the claim against the evidence.
+          </p>
+        </div>
+      </div>
+
+      {/* Verification Status Banner (Honest Non-Fabricated State) */}
+      <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
         <div className="flex items-start sm:items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-amber-900/60 border border-amber-700 flex items-center justify-center text-amber-300 flex-shrink-0">
-            <Clock className="w-4 h-4" />
+          <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-sky-400 flex-shrink-0">
+            {evidenceError ? (
+              <AlertCircle className="w-4 h-4 text-rose-400" />
+            ) : (
+              <Clock className="w-4 h-4 text-sky-400" />
+            )}
           </div>
           <div className="space-y-0.5">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-amber-300 uppercase tracking-wider text-[11px]">
+              <span className="font-semibold text-slate-300 uppercase tracking-wider text-[11px]">
                 Status:
               </span>
-              <span className="px-2 py-0.5 rounded bg-amber-900/60 text-amber-200 border border-amber-700/80 font-mono font-medium">
-                Awaiting Live Verification (Phase 2 Shell)
+              <span className={`px-2 py-0.5 rounded font-mono font-medium border ${
+                evidenceError 
+                  ? 'bg-rose-950/60 text-rose-300 border-rose-800' 
+                  : 'bg-sky-950/60 text-sky-300 border-sky-800'
+              }`}>
+                {evidenceError 
+                  ? 'Provider Search Error' 
+                  : 'Evidence Candidates Retrieved — Awaiting NLI Comparison'}
               </span>
             </div>
-            <p className="text-[11px] text-amber-300/80">
-              Submitted for verification. Live NLP/NLI comparison models and Brave Search indexing will populate final verdicts in subsequent phases.
+            <p className="text-[11px] text-slate-400">
+              Provider: <span className="font-medium text-slate-300">Free News API</span> &bull; {evidenceCount} candidates retrieved{providerTookMs ? ` (${providerTookMs}ms)` : ''}.
             </p>
           </div>
         </div>
@@ -161,7 +239,7 @@ export default function ResultsPage() {
                 <span>Submitted Claim</span>
               </h2>
               <span className="text-[11px] font-mono text-slate-400">
-                Input Scope: Primary Assertion
+                Primary Query
               </span>
             </div>
 
@@ -173,7 +251,7 @@ export default function ResultsPage() {
               {newsText && (
                 <div className="space-y-1">
                   <span className="text-[11px] font-medium text-slate-400 block">
-                    Associated News Text / Message Body:
+                    Associated News Text / Extended Body:
                   </span>
                   <div className="p-3 rounded-lg bg-slate-950/40 border border-slate-800/60 text-xs text-slate-300 leading-relaxed max-h-40 overflow-y-auto">
                     {newsText}
@@ -208,7 +286,7 @@ export default function ResultsPage() {
                 <span>Decomposed Claim Clauses</span>
               </h2>
               <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                Phase 3 Pipeline
+                Phase 4 Pipeline
               </span>
             </div>
 
@@ -218,30 +296,82 @@ export default function ResultsPage() {
                 <div className="space-y-1">
                   <span className="font-semibold text-slate-200">Sentence Segmentation &amp; Clause Extraction:</span>
                   <p className="leading-relaxed">
-                    Once the NLP parsing service is connected, complex news statements will be automatically split into individual verifiable factual claims. Each clause will then be independently scored against retrieved evidence.
+                    Once the NLP parsing service is connected in upcoming phases, complex news statements will be automatically split into individual verifiable factual claims. Each clause will then be independently scored against retrieved evidence.
                   </p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 3. Evidence Cards Section */}
+          {/* 3. Real Evidence Candidates Section */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-sm">
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
               <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
                 <FileCheck className="w-4 h-4 text-sky-400" />
                 <span>Retrieved Evidence Records</span>
               </h2>
-              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                0 Live Records
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                  {evidenceItems.length} Records Returned
+                </span>
+                {evidenceTotal > 0 && (
+                  <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                    (Index Total: {evidenceTotal})
+                  </span>
+                )}
+              </div>
             </div>
 
-            {/* EvidenceCard component in Phase 2 empty/dev state */}
-            <EvidenceCard
-              isEmptyState={true}
-              emptyMessage="External Evidence Retrieval Pipeline Pending"
-            />
+            {/* Error State */}
+            {evidenceError && (
+              <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-800/80 text-xs text-rose-200 space-y-3">
+                <div className="flex items-center gap-2 font-semibold text-rose-300">
+                  <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                  <span>Evidence Provider Communication Error</span>
+                </div>
+                <p className="text-rose-200/90 leading-relaxed">
+                  {evidenceError}
+                </p>
+                <button
+                  onClick={handleRefreshEvidence}
+                  disabled={isRefreshing}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-900/60 hover:bg-rose-900 text-white font-medium text-xs border border-rose-700 transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Retry Search</span>
+                </button>
+              </div>
+            )}
+
+            {/* Loading / Refreshing State */}
+            {isRefreshing && (
+              <div className="p-8 text-center space-y-3">
+                <Loader2 className="w-6 h-6 animate-spin text-sky-400 mx-auto" />
+                <p className="text-xs text-slate-400 font-mono">
+                  Retrieving updated articles from Free News API...
+                </p>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!isRefreshing && !evidenceError && evidenceItems.length === 0 && (
+              <EvidenceCard
+                isEmptyState={true}
+                emptyMessage="No relevant evidence sources were found for this search."
+              />
+            )}
+
+            {/* Evidence Cards List */}
+            {!isRefreshing && !evidenceError && evidenceItems.length > 0 && (
+              <div className="space-y-4">
+                {evidenceItems.map((item) => (
+                  <EvidenceCard
+                    key={item.id}
+                    item={item}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 4. Explainable Summary Shell */}
@@ -257,12 +387,12 @@ export default function ResultsPage() {
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              When verification execution is connected, this section will synthesize evidence into an explainable narrative detailing whether official records substantiate, refute, or qualify the submitted claim clauses. No automated decision is rendered without explicit citations.
+              When verification inference is connected in subsequent phases, this section will synthesize the retrieved evidence records into an explainable narrative detailing whether cited reporting substantiates, refutes, or qualifies the submitted claim clauses. No automated decision is rendered without explicit citations.
             </p>
           </div>
         </div>
 
-        {/* Right Column (1 col): Metadata, Jurisdiction Sources, Audit Info */}
+        {/* Right Column (1 col): Metadata, Jurisdiction Sources, Integrity Standard */}
         <div className="space-y-6">
           {/* Metadata Card */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
@@ -288,13 +418,18 @@ export default function ResultsPage() {
               </div>
 
               <div className="flex items-center justify-between py-1 border-b border-slate-800/50">
-                <span className="text-slate-400">Inferred Topic:</span>
-                <span className="font-mono text-slate-300">Public Policy / Governance</span>
+                <span className="text-slate-400">Country Filter:</span>
+                <span className="font-mono text-slate-300">IN (India)</span>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-slate-800/50">
+                <span className="text-slate-400">Provider:</span>
+                <span className="font-mono text-sky-400">Free News API</span>
               </div>
 
               <div className="flex items-center justify-between py-1">
                 <span className="text-slate-400">Verdict State:</span>
-                <span className="font-semibold text-amber-400">UNVERIFIED (Phase 2)</span>
+                <span className="font-semibold text-amber-400">UNVERIFIED (Phase 3)</span>
               </div>
             </div>
           </div>
@@ -337,11 +472,11 @@ export default function ResultsPage() {
             </div>
           </div>
 
-          {/* Integrity Notice */}
+          {/* Integrity Standard Note */}
           <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800/80 space-y-2 text-xs text-slate-400">
             <span className="font-semibold text-slate-200 block">Verification Integrity Standard</span>
             <p className="leading-relaxed">
-              TruthLens strictly prohibits generating artificial confidence percentages or synthetic verdicts. In Phase 2, this presentation shell validates the end-to-end user experience and data structure layout.
+              TruthLens strictly prohibits generating artificial confidence percentages or synthetic verdicts. Retrieved news records are candidates for comparison, not automatic proof of authenticity.
             </p>
           </div>
         </div>
