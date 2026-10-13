@@ -1,26 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ShieldCheck, 
   Search, 
   Link as LinkIcon, 
-  FileText, 
   AlertCircle, 
   ArrowDown, 
   ArrowRight,
-  Database,
-  Cpu,
-  Layers,
-  Sparkles,
-  CheckCircle2,
   Clock,
-  RotateCcw,
   Loader2,
   FileSearch,
-  Scale,
-  Compass
+  Mic,
+  MicOff,
+  Camera,
+  X,
+  Sparkles,
+  Type,
+  Image as ImageIcon
 } from 'lucide-react';
-import { searchEvidence, analyzeClaimEvidence } from '../services/api';
+import { searchEvidence } from '../services/api';
+import VerificationPipelineModal from '../components/VerificationPipelineModal';
+import CameraCaptureModal from '../components/CameraCaptureModal';
 
 export const JURISDICTIONS = [
   { id: 'central', name: 'Central Government / India', description: 'PIB, The Gazette of India, Union Ministries' },
@@ -37,10 +37,6 @@ export const LANGUAGES = [
   { id: 'ta', code: 'ta', name: 'Tamil', native: 'தமிழ்' },
 ];
 
-/**
- * Validates a user-provided article URL using JavaScript's native URL constructor.
- * Strict protocol whitelist: only 'http:' and 'https:' are permitted.
- */
 export const validateArticleUrl = (urlString) => {
   if (!urlString || !urlString.trim()) {
     return { valid: true, error: null };
@@ -58,7 +54,7 @@ export const validateArticleUrl = (urlString) => {
   } catch {
     return { 
       valid: false, 
-      error: 'Please enter a valid URL format (e.g., https://example.com/article).' 
+      error: 'Please enter a valid URL format (e.g., https://example.com/news/article).' 
     };
   }
 };
@@ -68,35 +64,34 @@ export default function HomePage() {
 
   // Controlled form state
   const [headline, setHeadline] = useState('');
-  const [newsText, setNewsText] = useState('');
   const [newsUrl, setNewsUrl] = useState('');
-  const [jurisdiction, setJurisdiction] = useState(JURISDICTIONS[0].name);
-  const [language, setLanguage] = useState(LANGUAGES[0].name);
+  const [jurisdiction, setJurisdiction] = useState('Central Government / India');
+  const [language, setLanguage] = useState('English');
+  const [capturedImage, setCapturedImage] = useState(null);
+
+  // Microphone state
+  const [isListening, setIsListening] = useState(false);
+  const [speechError, setSpeechError] = useState(null);
+  const recognitionRef = useRef(null);
+
+  // Camera modal state
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+
+  // Input tab mode ('type', 'speak', 'camera')
+  const [activeInputMode, setActiveInputMode] = useState('type');
 
   // Validation & Submission state
   const [formErrors, setFormErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionFeedback, setSubmissionFeedback] = useState(null);
 
-  // Maximum character thresholds for counters
   const MAX_HEADLINE_LENGTH = 350;
-  const MAX_TEXT_LENGTH = 5000;
 
   const scrollToWorkspace = () => {
     const el = document.getElementById('verify-workspace');
     if (el) {
       el.scrollIntoView({ behavior: 'smooth' });
     }
-  };
-
-  const handleReset = () => {
-    setHeadline('');
-    setNewsText('');
-    setNewsUrl('');
-    setJurisdiction(JURISDICTIONS[0].name);
-    setLanguage(LANGUAGES[0].name);
-    setFormErrors({});
-    setSubmissionFeedback(null);
   };
 
   const handleHeadlineChange = (e) => {
@@ -109,13 +104,6 @@ export default function HomePage() {
     }
   };
 
-  const handleNewsTextChange = (e) => {
-    const value = e.target.value;
-    if (value.length <= MAX_TEXT_LENGTH) {
-      setNewsText(value);
-    }
-  };
-
   const handleUrlChange = (e) => {
     const value = e.target.value;
     setNewsUrl(value);
@@ -124,14 +112,118 @@ export default function HomePage() {
     }
   };
 
+  // 1. Microphone Speech Recognition Handler
+  const startSpeechRecognition = () => {
+    setSpeechError(null);
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setSpeechError('Speech recognition is not supported in this browser. Please type or upload an image.');
+      return;
+    }
+
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = language.toLowerCase().includes('telugu') ? 'te-IN' : language.toLowerCase().includes('tamil') ? 'ta-IN' : 'en-US';
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setActiveInputMode('speak');
+      };
+
+      recognition.onresult = (event) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript.trim()) {
+          setHeadline(transcript.trim().slice(0, MAX_HEADLINE_LENGTH));
+          if (formErrors.headline) {
+            setFormErrors(prev => ({ ...prev, headline: null }));
+          }
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('[SpeechRecognition] Error:', event.error);
+        setIsListening(false);
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          setSpeechError('Microphone access denied. Please grant microphone permissions in your browser.');
+        } else if (event.error === 'no-speech') {
+          setSpeechError('No speech detected. Please try speaking again.');
+        } else {
+          setSpeechError(`Speech error: ${event.error}. Please try again.`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error('[SpeechRecognition] Init error:', err);
+      setIsListening(false);
+      setSpeechError('Unable to start microphone. Please verify device permissions.');
+    }
+  };
+
+  const stopSpeechRecognition = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setIsListening(false);
+  };
+
+  // Toggle Microphone
+  const toggleMicrophone = () => {
+    if (isListening) {
+      stopSpeechRecognition();
+    } else {
+      startSpeechRecognition();
+    }
+  };
+
+  // 2. Camera Capture Callback
+  const handleCameraCapture = (imageDataUrl, extractedText) => {
+    setCapturedImage(imageDataUrl);
+    setActiveInputMode('camera');
+    
+    if (extractedText && extractedText.trim()) {
+      setHeadline(extractedText.trim().slice(0, MAX_HEADLINE_LENGTH));
+      if (formErrors.headline) {
+        setFormErrors(prev => ({ ...prev, headline: null }));
+      }
+    } else if (!headline.trim()) {
+      setHeadline('Captured news image statement for verification');
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setCapturedImage(null);
+  };
+
+  // Form Submit Handler
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
 
-    // 1. Validation
+    // Stop listening if active
+    if (isListening) {
+      stopSpeechRecognition();
+    }
+
     const errors = {};
     if (!headline.trim()) {
-      errors.headline = 'Please enter a headline or core claim to submit for verification.';
+      errors.headline = 'Please enter, speak, or capture a claim to verify.';
     }
 
     if (newsUrl.trim()) {
@@ -150,80 +242,60 @@ export default function HomePage() {
       return;
     }
 
-    // 2. Submission progression
     setFormErrors({});
     setIsSubmitting(true);
-    setSubmissionFeedback({
-      type: 'info',
-      message: 'Decomposing claims, retrieving evidence, and running NLI comparison...',
-    });
 
-    // Map language code (default 'en')
-    const selectedLangObj = LANGUAGES.find(l => l.name === language);
-    const langCode = selectedLangObj ? selectedLangObj.code : 'en';
+    const langCode = language.toLowerCase().includes('telugu') ? 'te' : language.toLowerCase().includes('tamil') ? 'ta' : 'en';
 
     try {
-      const result = await analyzeClaimEvidence({
+      const result = await searchEvidence({
         claim: headline.trim(),
-        jurisdiction,
-        max_results: 5,
+        jurisdiction: jurisdiction,
+        language: langCode,
+        country: 'IN',
+        size: 15,
       });
+
+      await new Promise(res => setTimeout(res, 800));
 
       setIsSubmitting(false);
 
-      if (result.success) {
+      if (result && result.success) {
         navigate('/results', {
           state: {
             headline: headline.trim(),
-            newsText: newsText.trim(),
+            url: newsUrl.trim(),
             newsUrl: newsUrl.trim(),
-            jurisdiction,
-            language,
+            jurisdiction: jurisdiction,
+            language: language,
+            capturedImage: capturedImage,
             submittedAt: new Date().toISOString(),
-            atomicClaims: result.data.atomic_claims || [],
-            totalAtomicClaims: result.data.total_atomic_claims || 0,
-            detectedLanguage: result.data.detected_language,
-            languageConfidence: result.data.language_confidence,
-            isOpinionOnly: result.data.is_opinion_only,
-            evidenceResults: result.data.evidence || [],
-            evidenceTotal: result.data.total_evidence_retrieved || 0,
-            evidenceCount: result.data.total_evidence_retrieved || 0,
-            relationships: result.data.relationships || [],
-            relationshipCounts: result.data.relationship_counts || {},
-            nliModel: result.data.nli_model,
-            limitationNotice: result.data.limitation_notice,
-            timingsMs: result.data.timings_ms || {},
-            providerTookMs: result.data.timings_ms?.retrieval_ms,
-            provider: 'free_news_api',
-            status: 'NLI Analysis Complete',
+            ...result.data,
+            evidenceResults: result.data.results || [],
+            evidenceTotal: result.data.total_found || 0,
+            evidenceCount: result.data.results_count || 0,
+            providerTookMs: result.data.took_ms,
+            provider: result.data.provider || 'free_news_api',
+            warning: result.data.warning,
+            status: 'Evidence Retrieved',
           },
         });
       } else {
-        // Fallback: search evidence only if analyze endpoint encountered an issue
-        const searchRes = await searchEvidence({
-          claim: headline.trim(),
-          jurisdiction,
-          language: langCode,
-          country: 'IN',
-          size: 5,
-        });
-
         navigate('/results', {
           state: {
             headline: headline.trim(),
-            newsText: newsText.trim(),
+            url: newsUrl.trim(),
             newsUrl: newsUrl.trim(),
-            jurisdiction,
-            language,
+            jurisdiction: jurisdiction,
+            language: language,
+            capturedImage: capturedImage,
             submittedAt: new Date().toISOString(),
-            atomicClaims: [],
-            evidenceResults: searchRes.success ? (searchRes.data.results || []) : [],
-            evidenceTotal: searchRes.success ? (searchRes.data.total_found || 0) : 0,
-            evidenceCount: searchRes.success ? (searchRes.data.results_count || 0) : 0,
-            relationships: [],
-            evidenceError: !searchRes.success ? searchRes.error : result.error,
-            errorCode: result.code,
-            status: searchRes.success ? 'Evidence Retrieved' : 'Provider Error',
+            evidenceResults: [],
+            evidenceTotal: 0,
+            evidenceCount: 0,
+            evidenceError: result?.error || 'Verification request failed',
+            errorCode: result?.code,
+            status: 'Provider Error',
           },
         });
       }
@@ -231,149 +303,188 @@ export default function HomePage() {
       setIsSubmitting(false);
       setSubmissionFeedback({
         type: 'error',
-        message: err.message || 'An error occurred while connecting to the analysis pipeline.',
+        message: err.message || 'An error occurred while connecting to the evidence service.',
       });
     }
   };
 
   return (
-    <div className="space-y-16 py-10">
+    <div className="space-y-16 py-10 bg-slate-50">
+      <VerificationPipelineModal isOpen={isSubmitting} claim={headline} jurisdiction={jurisdiction} />
+      <CameraCaptureModal isOpen={isCameraOpen} onClose={() => setIsCameraOpen(false)} onCapture={handleCameraCapture} />
+
       {/* 1. HERO SECTION */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-6">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-950/80 border border-sky-800/70 text-sky-300 text-xs font-medium">
-          <ShieldCheck className="w-4 h-4 text-sky-400" />
-          <span>Evidence-Based News and Claim Verification</span>
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-7 relative">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold shadow-sm">
+          <ShieldCheck className="w-4 h-4 text-blue-600" />
+          <span>Evidence before belief.</span>
         </div>
 
-        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white max-w-4xl mx-auto leading-tight">
-          Before you believe it, <br />
-          <span className="text-sky-400">check the evidence.</span>
+        <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-[#1E3A8A] max-w-4xl mx-auto leading-tight">
+          Just Ask <br />
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-teal-600 to-indigo-700">
+            We Prove It!
+          </span>
         </h1>
 
-        <p className="text-slate-300 text-base sm:text-lg max-w-2xl mx-auto leading-relaxed">
-          TruthLens is engineered to validate assertions through traceable evidence. The platform is designed to extract claims, detect jurisdiction and language, retrieve official government gazettes, and compare assertions using explainable inference.
+        <p className="text-slate-600 text-base sm:text-xl max-w-2xl mx-auto leading-relaxed font-normal">
+          TruthLens analyzes claims against official sources, trusted news organizations, and existing fact checks.
         </p>
 
-        {/* Phase 3 Scope Notice */}
-        <div className="inline-block max-w-xl mx-auto p-3 rounded-lg bg-slate-900/90 border border-slate-800 text-xs text-slate-400">
-          <span className="font-semibold text-slate-200">Phase 3 Status:</span> Real evidence candidate retrieval layer active via Free News API provider. Natural Language Inference (NLI) and ClaimReview matching scheduled for upcoming releases.
-        </div>
-
-        <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-4">
+        <div className="pt-3 flex flex-col sm:flex-row items-center justify-center gap-4">
           <button
             type="button"
             onClick={scrollToWorkspace}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-medium text-sm transition-colors shadow-lg shadow-sky-900/30 cursor-pointer"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-xl btn-primary font-bold text-sm shadow-md cursor-pointer"
           >
-            <span>Check a Claim</span>
+            <span>Verify a Claim</span>
             <ArrowDown className="w-4 h-4" />
           </button>
 
           <button
             type="button"
             onClick={() => navigate('/results')}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg bg-slate-800/90 hover:bg-slate-800 text-slate-200 hover:text-white font-medium text-sm border border-slate-700 transition-colors cursor-pointer"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl bg-white border border-slate-200 hover:border-slate-300 text-slate-800 font-bold text-sm cursor-pointer shadow-sm"
           >
-            <span>View Results Presentation Shell</span>
-            <ArrowRight className="w-4 h-4" />
+            <span>View Verification Results</span>
+            <ArrowRight className="w-4 h-4 text-blue-600" />
           </button>
         </div>
       </section>
 
       {/* 2. PROCESS EXPLANATION CARDS */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
         <div className="text-center space-y-1.5">
-          <h2 className="text-xs uppercase tracking-wider font-semibold text-sky-400">
-            How TruthLens Operates
+          <h2 className="text-xs uppercase tracking-widest font-bold text-[#0F766E] font-mono">
+            EVIDENCE-FIRST METHODOLOGY
           </h2>
-          <p className="text-xl sm:text-2xl font-bold text-white">
-            Evidence First, Explanation Second
+          <p className="text-2xl sm:text-3xl font-extrabold text-[#1E3A8A]">
+            How TruthLens Operates
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Card 1 */}
-          <div className="p-6 rounded-xl bg-slate-900 border border-sky-800/40 relative space-y-3 shadow-md">
-            <div className="w-10 h-10 rounded-lg bg-sky-950 border border-sky-800 flex items-center justify-center text-sky-400 font-bold text-sm">
+          <div className="card-clean card-clean-hover rounded-2xl p-7 space-y-4 shadow-sm">
+            <div className="w-12 h-12 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 font-black text-base">
               01
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-semibold text-white">1. Submit a Claim</h3>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800">
+                <h3 className="text-lg font-bold text-[#1E3A8A]">1. Submit a Claim</h3>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                   ACTIVE
                 </span>
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Provide a news headline, full article text, or source link. Select the target Indian jurisdiction and language for contextual routing.
+              <p className="text-xs text-slate-600 leading-relaxed font-normal">
+                Type text, speak using your microphone, or capture a claim image with your camera to begin evidence analysis.
               </p>
             </div>
           </div>
 
-          {/* Card 2 */}
-          <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 relative space-y-3">
-            <div className="w-10 h-10 rounded-lg bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-400 font-bold text-sm">
+          <div className="card-clean card-clean-hover rounded-2xl p-7 space-y-4 shadow-sm">
+            <div className="w-12 h-12 rounded-xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 font-black text-base">
               02
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-semibold text-slate-200">2. Retrieve Relevant Evidence</h3>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                  UPCOMING
+                <h3 className="text-lg font-bold text-[#1E3A8A]">2. Retrieve Evidence</h3>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  ACTIVE
                 </span>
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                The engine will query Brave Search and official state gazettes (PIB, GoAP, GoTS, TN DIPR) to aggregate primary source records.
+              <p className="text-xs text-slate-600 leading-relaxed font-normal">
+                Queries Google Fact Check Tools, Free News search corpus, and official state gazettes (PIB, GoAP, GoTS, TN DIPR) for primary source records.
               </p>
             </div>
           </div>
 
-          {/* Card 3 */}
-          <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 relative space-y-3">
-            <div className="w-10 h-10 rounded-lg bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-400 font-bold text-sm">
+          <div className="card-clean card-clean-hover rounded-2xl p-7 space-y-4 shadow-sm">
+            <div className="w-12 h-12 rounded-xl bg-violet-50 border border-violet-200 flex items-center justify-center text-violet-700 font-black text-base">
               03
             </div>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-semibold text-slate-200">3. Compare Claim With Evidence</h3>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                  UPCOMING
+                <h3 className="text-lg font-bold text-[#1E3A8A]">3. Evaluate &amp; Score</h3>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  ACTIVE
                 </span>
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Natural Language Inference (NLI) will evaluate entailment and contradiction against retrieved evidence, generating a traceable synthesis.
+              <p className="text-xs text-slate-600 leading-relaxed font-normal">
+                Determines stance (Supported, Contradicted, Misleading, Insufficient), generates 5–8 factual points, and computes an Evidence Support Score.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 3. VERIFICATION INPUT WORKSPACE */}
+      {/* 3. VERIFICATION INPUT WORKSPACE WITH MICROPHONE & CAMERA */}
       <section id="verify-workspace" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-xl overflow-hidden">
-          {/* Header */}
-          <div className="border-b border-slate-800 px-6 py-4 bg-slate-850 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-slate-100 font-semibold text-sm">
-              <FileSearch className="w-4 h-4 text-sky-400" />
+        <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-lg">
+          {/* Header & Input Mode Indicators */}
+          <div className="border-b border-slate-200 px-8 py-5 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 text-[#1E3A8A] font-bold text-base">
+              <FileSearch className="w-5 h-5 text-blue-600" />
               <span>Claim Submission Console</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span>Jurisdiction &amp; Language Routing</span>
+
+            {/* Input Modes Toolbar */}
+            <div className="flex items-center gap-1.5 p-1 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setActiveInputMode('type')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
+                  activeInputMode === 'type' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Type claim statement"
+              >
+                <Type className="w-3.5 h-3.5" />
+                <span>Type Text</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleMicrophone}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                  isListening
+                    ? 'bg-rose-600 text-white animate-pulse'
+                    : activeInputMode === 'speak'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+                title="Speak claim using microphone"
+              >
+                {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5 text-rose-500" />}
+                <span>{isListening ? 'Stop' : '🎤 Speak'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsCameraOpen(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                  activeInputMode === 'camera' && capturedImage
+                    ? 'bg-teal-700 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+                title="Capture image with camera"
+              >
+                <Camera className="w-3.5 h-3.5 text-teal-600" />
+                <span>📷 Camera</span>
+              </button>
             </div>
           </div>
 
           {/* Feedback Banner */}
           {submissionFeedback && (
-            <div 
-              className={`px-6 py-3 border-b text-xs flex items-center justify-between ${
+            <div
+              className={`px-8 py-3.5 border-b text-xs flex items-center justify-between ${
                 submissionFeedback.type === 'error'
-                  ? 'bg-rose-950/40 border-rose-900/80 text-rose-200'
-                  : 'bg-sky-950/40 border-sky-900/80 text-sky-200'
+                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                  : 'bg-blue-50 border-blue-200 text-blue-800'
               }`}
             >
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <span>{submissionFeedback.message}</span>
+                <span className="font-semibold">{submissionFeedback.message}</span>
               </div>
               <button
                 type="button"
@@ -385,20 +496,136 @@ export default function HomePage() {
             </div>
           )}
 
+          {/* Speech Error Alert Banner */}
+          {speechError && (
+            <div className="px-8 py-3 bg-rose-50 border-b border-rose-200 text-xs text-rose-800 flex items-center justify-between">
+              <div className="flex items-center gap-2 font-medium">
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{speechError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSpeechError(null)}
+                className="text-xs opacity-75 hover:opacity-100 underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {/* Form */}
-          <form onSubmit={handleSubmit} className="p-6 space-y-6">
-            {/* Metadata Selectors: Jurisdiction and Language */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="jurisdiction-select" className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Compass className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Target Jurisdiction</span>
+          <form onSubmit={handleSubmit} className="p-8 space-y-6">
+            {/* 1. Headline / Core Claim Input with Voice & Camera Integration */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label htmlFor="headline-input" className="block text-xs font-bold text-[#1E3A8A] uppercase tracking-wider">
+                  Headline / Core Claim <span className="text-rose-600">*</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  {isListening && (
+                    <span className="flex items-center gap-1.5 text-xs text-rose-600 font-bold font-mono animate-pulse">
+                      <Mic className="w-3.5 h-3.5 animate-bounce" />
+                      <span>Listening...</span>
+                    </span>
+                  )}
+                  <span className={`text-[11px] font-mono ${headline.length >= MAX_HEADLINE_LENGTH ? 'text-amber-600 font-bold' : 'text-slate-400'}`}>
+                    {headline.length} / {MAX_HEADLINE_LENGTH}
+                  </span>
+                </div>
+              </div>
+
+              <div className="relative flex items-center">
+                <input
+                  id="headline-input"
+                  type="text"
+                  placeholder="Enter, speak, or capture the news headline to verify..."
+                  value={headline}
+                  onChange={handleHeadlineChange}
+                  disabled={isSubmitting}
+                  className={`w-full bg-slate-50 border rounded-xl pl-4 pr-24 py-3.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white transition-all ${
+                    formErrors.headline
+                      ? 'border-rose-400 focus:ring-2 focus:ring-rose-200'
+                      : 'border-slate-200 focus:ring-2 focus:ring-blue-100 focus:border-blue-600'
+                  }`}
+                />
+
+                {/* Inline Quick Action Buttons: Mic & Camera */}
+                <div className="absolute right-2 flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={toggleMicrophone}
+                    title={isListening ? 'Stop recording speech' : 'Speak claim via microphone'}
+                    className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                      isListening
+                        ? 'bg-rose-600 text-white animate-pulse'
+                        : 'text-slate-500 hover:text-blue-600 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCameraOpen(true)}
+                    title="Capture claim image via camera"
+                    className="p-2 rounded-lg text-slate-500 hover:text-teal-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {formErrors.headline && (
+                <p className="text-xs text-rose-600 flex items-center gap-1.5 pt-0.5 font-semibold">
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{formErrors.headline}</span>
+                </p>
+              )}
+            </div>
+
+            {/* Captured Image Preview Display */}
+            {capturedImage && (
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-4 animate-fadeIn shadow-xs">
+                <div className="flex items-center gap-3">
+                  <img
+                    src={capturedImage}
+                    alt="Captured claim"
+                    className="w-16 h-12 object-cover rounded-xl border border-slate-300 shadow-sm"
+                  />
+                  <div className="space-y-0.5 text-xs">
+                    <span className="font-bold text-slate-900 block flex items-center gap-1.5">
+                      <ImageIcon className="w-3.5 h-3.5 text-teal-600" />
+                      <span>Captured Image Attached</span>
+                    </span>
+                    <span className="text-[11px] text-slate-500 block font-mono">
+                      Image metadata &amp; visual text will be passed to evidence analysis
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-200 transition-colors cursor-pointer"
+                  title="Remove captured image"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Jurisdiction & Language Selection Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <label htmlFor="jurisdiction-select" className="block text-xs font-bold text-[#1E3A8A] uppercase tracking-wider">
+                  Target Jurisdiction
                 </label>
                 <select
                   id="jurisdiction-select"
                   value={jurisdiction}
                   onChange={(e) => setJurisdiction(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
+                  disabled={isSubmitting}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 text-xs text-slate-800 font-medium focus:outline-none focus:bg-white focus:border-blue-600"
                 >
                   {JURISDICTIONS.map((j) => (
                     <option key={j.id} value={j.name}>
@@ -406,21 +633,18 @@ export default function HomePage() {
                     </option>
                   ))}
                 </select>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Routes claim against regional portals and state information bureaus.
-                </p>
               </div>
 
-              <div>
-                <label htmlFor="language-select" className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Scale className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Primary Content Language</span>
+              <div className="space-y-2">
+                <label htmlFor="language-select" className="block text-xs font-bold text-[#1E3A8A] uppercase tracking-wider">
+                  Target Language
                 </label>
                 <select
                   id="language-select"
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500"
+                  disabled={isSubmitting}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 text-xs text-slate-800 font-medium focus:outline-none focus:bg-white focus:border-blue-600"
                 >
                   {LANGUAGES.map((l) => (
                     <option key={l.id} value={l.name}>
@@ -428,132 +652,63 @@ export default function HomePage() {
                     </option>
                   ))}
                 </select>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Multilingual NLI models will process regional scripts in later phases.
-                </p>
               </div>
             </div>
 
-            {/* 1. Headline / Claim Input (Required) */}
-            <div className="space-y-1.5">
+            {/* Article URL (Optional) */}
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label htmlFor="headline-input" className="block text-xs font-medium text-slate-200">
-                  Headline or Core Claim <span className="text-rose-400">*</span>
-                </label>
-                <span className={`text-[11px] font-mono ${
-                  headline.length >= MAX_HEADLINE_LENGTH ? 'text-amber-400' : 'text-slate-400'
-                }`}>
-                  {headline.length} / {MAX_HEADLINE_LENGTH}
-                </span>
-              </div>
-              <input
-                id="headline-input"
-                type="text"
-                placeholder="e.g., Central Government announces revised criteria for citizen welfare subsidies..."
-                value={headline}
-                onChange={handleHeadlineChange}
-                disabled={isSubmitting}
-                className={`w-full bg-slate-950 border rounded-lg px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-400 focus:outline-none transition-colors ${
-                  formErrors.headline 
-                    ? 'border-rose-500 focus:ring-1 focus:ring-rose-500' 
-                    : 'border-slate-800 focus:ring-1 focus:ring-sky-500 focus:border-sky-500'
-                }`}
-              />
-              {formErrors.headline && (
-                <p className="text-xs text-rose-400 flex items-center gap-1.5 pt-0.5">
-                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span>{formErrors.headline}</span>
-                </p>
-              )}
-            </div>
-
-            {/* 2. News Article Text (Optional Context) */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label htmlFor="text-input" className="block text-xs font-medium text-slate-300">
-                  Extended Article Text / Message Body <span className="text-slate-400 font-normal">(Optional)</span>
-                </label>
-                <span className="text-[11px] font-mono text-slate-400">
-                  {newsText.length} / {MAX_TEXT_LENGTH}
-                </span>
-              </div>
-              <textarea
-                id="text-input"
-                rows={4}
-                placeholder="Paste the full news article body, circulating message excerpt, or social media post content here..."
-                value={newsText}
-                onChange={handleNewsTextChange}
-                disabled={isSubmitting}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 transition-colors"
-              />
-            </div>
-
-            {/* 3. Reference URL (Optional) */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label htmlFor="url-input" className="block text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                <label htmlFor="url-input" className="block text-xs font-bold text-[#1E3A8A] uppercase tracking-wider flex items-center gap-1.5">
                   <LinkIcon className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Article or Reference URL <span className="text-slate-400 font-normal">(Optional)</span></span>
+                  <span>Article URL <span className="text-slate-500 font-normal lowercase">(optional)</span></span>
                 </label>
-                <span className="text-[11px] text-slate-400">Must begin with http:// or https://</span>
+                <span className="text-[11px] text-slate-400 font-mono">Must begin with http:// or https://</span>
               </div>
               <input
                 id="url-input"
                 type="text"
-                placeholder="https://news-portal.example/story/item-id"
+                placeholder="https://example.com/news/article"
                 value={newsUrl}
                 onChange={handleUrlChange}
                 disabled={isSubmitting}
-                className={`w-full bg-slate-950 border rounded-lg px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-400 font-mono text-xs focus:outline-none transition-colors ${
-                  formErrors.url 
-                    ? 'border-rose-500 focus:ring-1 focus:ring-rose-500' 
-                    : 'border-slate-800 focus:ring-1 focus:ring-sky-500 focus:border-sky-500'
+                className={`w-full bg-slate-50 border rounded-xl px-4 py-3.5 text-sm text-slate-900 placeholder-slate-400 font-mono text-xs focus:outline-none focus:bg-white transition-all ${
+                  formErrors.url
+                    ? 'border-rose-400 focus:ring-2 focus:ring-rose-200'
+                    : 'border-slate-200 focus:ring-2 focus:ring-blue-100 focus:border-blue-600'
                 }`}
               />
               {formErrors.url && (
-                <p className="text-xs text-rose-400 flex items-center gap-1.5 pt-0.5">
+                <p className="text-xs text-rose-600 flex items-center gap-1.5 pt-0.5 font-semibold">
                   <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                   <span>{formErrors.url}</span>
                 </p>
               )}
             </div>
 
-            {/* Actions Row */}
-            <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-xs text-slate-400 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-sky-400 flex-shrink-0" />
-                <span>Phase 2: Submissions route to the structured results presentation shell.</span>
+            {/* Submit Action */}
+            <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-xs text-slate-500 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                <span>Verification routes through automated evidence retrieval &amp; scoring.</span>
               </div>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  disabled={isSubmitting || (!headline && !newsText && !newsUrl)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium text-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reset</span>
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-sky-800 disabled:cursor-not-allowed text-white font-medium text-sm transition-colors shadow-sm cursor-pointer"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Submitting Claim...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-4 h-4" />
-                      <span>Submit for Verification</span>
-                    </>
-                  )}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-xl btn-primary font-bold text-sm cursor-pointer shadow-md"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Verifying Claim...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4" />
+                    <span>🔍 Verify Claim</span>
+                  </>
+                )}
+              </button>
             </div>
           </form>
         </div>
@@ -561,15 +716,15 @@ export default function HomePage() {
 
       {/* 4. PRODUCT PHILOSOPHY & TRUST */}
       <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="p-6 rounded-xl bg-slate-900/50 border border-slate-800/80 space-y-3">
-          <div className="flex items-center gap-2 text-slate-200 font-semibold text-sm">
-            <ShieldCheck className="w-4 h-4 text-sky-400" />
+        <div className="p-8 rounded-3xl bg-white border border-slate-200 space-y-3 shadow-sm">
+          <div className="flex items-center gap-2.5 text-[#1E3A8A] font-extrabold text-base">
+            <ShieldCheck className="w-5 h-5 text-blue-600" />
             <span>Product Philosophy &amp; Verification Integrity</span>
           </div>
-          <p className="text-xs text-slate-300 leading-relaxed">
-            TruthLens is designed around <span className="text-white font-medium">evidence retrieval and explainability</span> rather than simply asking an AI model whether a claim is true. The platform avoids opaque black-box verdicts or ungrounded confidence percentages. Every assessment will link directly to cited official documentation, verifiable gazettes, and reputable news records.
+          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-normal">
+            TruthLens is designed around <span className="text-[#1E3A8A] font-bold">evidence retrieval and explainability</span> rather than asking an AI model to render ungrounded opinions. Every assessment links directly to cited official documentation, verifiable gazettes, and reputable news records.
           </p>
-          <div className="text-[11px] text-slate-400 font-mono pt-1">
+          <div className="text-xs text-[#0F766E] font-mono font-bold pt-1">
             "Evidence first, explanation second."
           </div>
         </div>

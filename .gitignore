@@ -37,3 +37,7 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Cloned source reference
+QWERTY/
+
